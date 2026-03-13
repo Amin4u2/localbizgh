@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { ForgotPasswordModal, OnboardingTour, OrderNotifyPanel, requestNotificationPermission } from "./newFeatures";
 import {
   registerUser, loginUser, logoutUser, onAuthChange, fetchUserProfile,
   isUsernameTaken,
@@ -77,30 +78,22 @@ async function sendSMS(toPhone, message) {
   try { await fetch(url); } catch {}
 }
 
-const REGIONS = [
-  "Greater Accra","Ashanti","Western","Central","Eastern",
-  "Volta","Northern","Upper East","Upper West","Brong-Ahafo",
-];
+// ── All 16 Ghana Regions + Districts (imported from regions.js) ───────────────
+import { GHANA_REGIONS, REGION_NAMES, getDistricts } from "./regions";
+const REGIONS = REGION_NAMES; // All 16 regions
+const GHANA_TOWNS = Object.fromEntries(GHANA_REGIONS.map(r => [r.region, r.districts]));
+
 const BIZ_CATEGORIES = [
   {label:"Food & Restaurant",emoji:"🍽️"},{label:"Grocery & Supermarket",emoji:"🛒"},
   {label:"Fashion & Boutique",emoji:"👗"},{label:"Electronics",emoji:"📱"},
   {label:"Pharmacy & Health",emoji:"💊"},{label:"Beauty & Wellness",emoji:"💄"},
   {label:"Bakery & Pastry",emoji:"🍰"},{label:"Hardware & Tools",emoji:"🔧"},
-  {label:"Drinks & Bar",emoji:"🍺"},{label:"Other",emoji:"🏪"},
+  {label:"Drinks & Bar",emoji:"🍺"},{label:"Logistics & Courier",emoji:"🚚"},
+  {label:"Agriculture & Farming",emoji:"🌾"},{label:"Education & Tutoring",emoji:"📚"},
+  {label:"Auto Parts & Services",emoji:"🔧"},{label:"Events & Entertainment",emoji:"🎉"},
+  {label:"Hotels & Accommodation",emoji:"🏨"},{label:"Other (specify)",emoji:"🏪"},
 ];
 const VEHICLES = ["Motorbike 🏍️","Bicycle 🚴","Car 🚗","Van 🚐","Tricycle (Keke) 🛺"];
-const GHANA_TOWNS = {
-  "Greater Accra": ["Accra","Tema","Madina","Adenta","Kasoa","Dome","Lapaz","Dansoman","Ashaiman","Teshie","Nungua","Lashibi","Spintex","Achimota","Haatso","Weija","Ablekuma","Abossey Okai","Darkuman","Odorkor"],
-  "Ashanti": ["Kumasi","Obuasi","Ejisu","Konongo","Mampong","Bekwai","Juaben","Asokore Mampong","Asante Akim","Kenyase","Offinso","Atonsu","Asokwa","Bantama","Suame","Tafo","Manhyia","Danyame"],
-  "Western": ["Takoradi","Sekondi","Tarkwa","Axim","Prestea","Bibiani","Sefwi Wiawso","Enchi","Bogoso","Agona Nkwanta","Shama","Cape Three Points","Busua","Half Assini"],
-  "Central": ["Cape Coast","Winneba","Saltpond","Mankessim","Kasoa","Agona Swedru","Assin Fosu","Elmina","Dunkwa","Twifo Praso","Awutu","Anomabo","Abandze"],
-  "Eastern": ["Koforidua","Nkawkaw","Suhum","Akim Oda","Akwatia","Nsawam","Aburi","Asamankese","Somanya","Begoro","Atibie","Kade","Mpraeso","Bunso"],
-  "Volta": ["Ho","Hohoe","Keta","Sogakope","Aflao","Denu","Anloga","Kpando","Dzodze","Akatsi","Tongu","Abor","Amedzofe","Vane"],
-  "Northern": ["Tamale","Savelugu","Yendi","Gushegu","Karaga","Tolon","Kumbungu","Sagnarigu","Dalun","Garu","Nkoranza"],
-  "Upper East": ["Bolgatanga","Bawku","Navrongo","Zebilla","Sandema","Bongo","Zuarungu","Chiana","Tongo","Paga"],
-  "Upper West": ["Wa","Tumu","Jirapa","Lawra","Nandom","Hamile","Funsi","Kaleo","Wechiau","Nadowli"],
-  "Brong-Ahafo": ["Sunyani","Techiman","Berekum","Kintampo","Wenchi","Dormaa Ahenkro","Yeji","Atebubu","Nkoranza","Duayaw Nkwanta"],
-};
 const PAYMENTS = [
   {v:"cash",label:"💵 Cash on Delivery"},{v:"transfer",label:"🏦 Bank Transfer"},
   {v:"pos",label:"💳 POS on Delivery"},{v:"momo",label:"📱 Mobile Money (MoMo)"},
@@ -976,7 +969,7 @@ function AuthModal({mode, defaultRole, onClose, toast, onAdminAccess}) {
         if(form.password.length<6) throw new Error("Password must be at least 6 characters.");
         if(role==="business"&&!form.businessName) throw new Error("Please enter your business name.");
         await registerUser(form.email,form.password,form.name,form.username,role,form.region,form.phone,{
-          businessName:form.businessName, category:form.category||"Food & Restaurant",
+          businessName:form.businessName, category:form.category==="Other (specify)"?(form.customCategory||"Other"):form.category||"Food & Restaurant",
           vehicle:form.vehicle, licenseNo:form.licenseNo,
           town: form.town,
           logoFile:  role==="business" ? logoFile  : null,
@@ -1041,19 +1034,22 @@ function AuthModal({mode, defaultRole, onClose, toast, onAdminAccess}) {
                 <div className="fgrp"><label>Phone *</label><input className="finp" placeholder="024 000 0000" value={form.phone} onChange={e=>set("phone",e.target.value)}/></div>
                 <div className="fgrp"><label>Region *</label>
                   <select className="finp" value={form.region} onChange={e=>{set("region",e.target.value);set("town","");}}>
-                    {REGIONS.map(r=><option key={r}>{r}</option>)}
+                    <option value="">— Select Region —</option>
+                    {REGIONS.map(r=><option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
-                <div className="fgrp"><label>Town / Area *</label>
+                <div className="fgrp"><label>District / Town *</label>
                   <select className="finp" value={form.town} onChange={e=>set("town",e.target.value)}>
-                    <option value="">— Select your town —</option>
-                    {(GHANA_TOWNS[form.region]||[]).map(t=><option key={t}>{t}</option>)}
+                    <option value="">— Select District —</option>
+                    {(GHANA_TOWNS[form.region]||[]).map(t=><option key={t} value={t}>{t}</option>)}
                   </select>
-                  <div className="auth-hint">Pick the town closest to you in {form.region}</div>
+                  <div className="auth-hint">{form.region?`Districts in ${form.region}`:"Select a region first"}</div>
                 </div>
               </div>
               {role==="business"&&<>
-                <div className="fgrp"><label>Business Category</label><div className="cat-mini-grid">{BIZ_CATEGORIES.map(c=><div key={c.label} className={`cat-mini ${form.category===c.label?"sel":""}`} onClick={()=>set("category",c.label)}><span className="cat-mini-ico">{c.emoji}</span><div className="cat-mini-lab">{c.label}</div></div>)}</div></div>
+                <div className="fgrp"><label>Business Category</label><div className="cat-mini-grid">{BIZ_CATEGORIES.map(c=><div key={c.label} className={`cat-mini ${form.category===c.label?"sel":""}`} onClick={()=>set("category",c.label)}><span className="cat-mini-ico">{c.emoji}</span><div className="cat-mini-lab">{c.label}</div></div>)}</div>
+                {form.category==="Other (specify)"&&<input className="finp" style={{marginTop:8}} placeholder="Type your business category" value={form.customCategory||""} onChange={e=>set("customCategory",e.target.value)}/>}
+                </div>
                 <div className="fgrp">
                   <label style={{display:"flex",alignItems:"center",gap:6}}>🖼️ Business Logo <span style={{fontSize:9,fontWeight:500,textTransform:"none",letterSpacing:0,color:"var(--dim)"}}>— shows on your dashboard, shop page &amp; receipts</span></label>
                   <div className="logo-upload-row">
@@ -1109,6 +1105,7 @@ function AuthModal({mode, defaultRole, onClose, toast, onAdminAccess}) {
             </div>
           )}
           <div className="fgrp" style={{marginBottom:4}}><label>Password *</label><input className="finp" type="password" placeholder={isSu?"Min 6 characters":"Your password"} value={form.password} onChange={e=>set("password",e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/></div>
+          {!isSu&&<div style={{textAlign:"right",marginBottom:8,marginTop:-2}}><ForgotPasswordModal /></div>}
           <button className="btn-auth" onClick={submit} disabled={loading}>{loading?(isSu?"Creating account…":"Signing in…"):(isSu?"Create Account →":"Sign In →")}</button>
           <div className="auth-sw">{isSu?"Already have an account?":"Don't have an account?"}<button onClick={()=>{setIsSu(!isSu);setErr("");}}>  {isSu?"Sign in":"Create account"}</button></div>
         </div>
@@ -1181,7 +1178,7 @@ function Landing({onAuth, onAdminDirect}) {
       <section className="l-hero">
         <div className="l-eyebrow">🇬🇭 Ghana's National Commerce Platform</div>
         <h1 className="l-h1">Where <em>local</em> business<br/>meets <span>every customer</span></h1>
-        <p className="l-sub">LocalBiz connects businesses, customers, and riders across all 10 regions of Ghana. Order local. Deliver local. <em>Win local.</em> <span style={{display:"block",marginTop:8,fontSize:12,opacity:.5,fontFamily:"var(--fb)",fontWeight:700,letterSpacing:1}}>POWERED BY AMTECH SOFTWARE SOLUTIONS</span></p>
+        <p className="l-sub">LocalBiz connects businesses, customers, and riders across all 16 regions of Ghana. Order local. Deliver local. <em>Win local.</em> <span style={{display:"block",marginTop:8,fontSize:12,opacity:.5,fontFamily:"var(--fb)",fontWeight:700,letterSpacing:1}}>POWERED BY AMTECH SOFTWARE SOLUTIONS</span></p>
         <div className="l-ctas">
           <button className="btn-hero"  onClick={()=>onAuth("signup")}>Join Free — Get Started</button>
           <button className="btn-hero2" onClick={()=>onAuth("signin")}>Sign In</button>
@@ -1189,7 +1186,7 @@ function Landing({onAuth, onAdminDirect}) {
       </section>
 
       <div className="l-stats">
-        {[["10","Regions"],["3","User Roles"],["GH₵0","To Start"],["Real-time","Firebase"]].map(([n,l])=>(
+        {[["16","Regions"],["3","User Roles"],["GH₵0","To Start"],["Real-time","Firebase"]].map(([n,l])=>(
           <div key={l} className="lst"><div className="lst-n">{n}</div><div className="lst-l">{l}</div></div>
         ))}
       </div>
@@ -1252,7 +1249,7 @@ function Landing({onAuth, onAdminDirect}) {
       <section className="l-regions">
         <div className="regions-center">
           <div className="l-lbl" style={{color:"rgba(74,222,128,.6)"}}>Coverage</div>
-          <h2 style={{color:"white",fontSize:"clamp(22px,4vw,34px)",marginBottom:6}}>All 10 regions. One platform.</h2>
+          <h2 style={{color:"white",fontSize:"clamp(22px,4vw,34px)",marginBottom:6}}>All 16 regions. One platform.</h2>
           <p style={{color:"rgba(255,255,255,.42)",fontSize:14}}>Every Ghanaian can access LocalBiz — from Greater Accra to Upper West.</p>
           <div className="regions-flex">{REGIONS.map(r=><div key={r} className="rpill">{r}</div>)}</div>
         </div>
@@ -1608,7 +1605,7 @@ Please confirm this order on your LocalBiz dashboard.`;
             <div className="ch-sub">Discover businesses across Ghana.</div>
             <div className="ch-region"><label>REGION:</label>
               <select className="rsel" value={region} onChange={e=>setRegion(e.target.value)}>
-                <option>All Regions</option>{REGIONS.map(r=><option key={r}>{r}</option>)}
+                <option>All Regions</option>{REGIONS.map(r=><option key={r} value={r}>{r}</option>)}
               </select>
             </div>
           </div>
@@ -3477,7 +3474,7 @@ function AdminDashboard({toast}) {
             <div className="fgrp"><label>Owner Name *</label><input className="finp" value={nb.owner} onChange={e=>setNb(n=>({...n,owner:e.target.value}))}/></div>
             <div className="fgrp"><label>Email</label><input className="finp" value={nb.email} onChange={e=>setNb(n=>({...n,email:e.target.value}))}/></div>
             <div className="fgrp"><label>Phone</label><input className="finp" value={nb.phone} onChange={e=>setNb(n=>({...n,phone:e.target.value}))}/></div>
-            <div className="fgrp"><label>Region</label><select className="finp" value={nb.region} onChange={e=>setNb(n=>({...n,region:e.target.value}))}>{REGIONS.map(r=><option key={r}>{r}</option>)}</select></div>
+            <div className="fgrp"><label>Region</label><select className="finp" value={nb.region} onChange={e=>setNb(n=>({...n,region:e.target.value}))}><option value="">— Select Region —</option>{REGIONS.map(r=><option key={r} value={r}>{r}</option>)}</select></div>
             <div className="fgrp"><label>Category</label><select className="finp" value={nb.type} onChange={e=>setNb(n=>({...n,type:e.target.value}))}>{BIZ_CATEGORIES.map(c=><option key={c.label}>{c.label}</option>)}</select></div>
           </div>
           <div className="macts"><button className="mact-sec" onClick={()=>setShowOnboard(false)}>Cancel</button><button className="mact-pri" onClick={doOnboard}>Onboard</button></div>
@@ -4074,6 +4071,8 @@ export default function App() {
         const p=await fetchUserProfile(user.uid);
         setProfile(p);
         setTab(p?.role==="business"?"store":p?.role==="rider"?"rider":"browse");
+        // Request browser notification permission for business owners and riders
+        if(p?.role==="business"||p?.role==="rider") requestNotificationPermission();
       } else { setProfile(null); setTab(null); setIsAdmin(false); }
     });
   },[]);
@@ -4130,6 +4129,8 @@ export default function App() {
     <>
       <style>{CSS}</style>
       <Toasts toasts={toasts}/>
+      {/* Onboarding tour — shown once after sign up */}
+      {profile && <OnboardingTour role={profile.role} />}
       {authMode&&<AuthModal mode={authMode} defaultRole={authRole} onClose={()=>{setAuthMode(null);setAuthRole(null);}} toast={toast} onAdminAccess={goAdmin}/>}
       {!fbUser&&!isAdmin&&<Landing onAuth={(m,r=null)=>{setAuthMode(m);setAuthRole(r);}} onAdminDirect={goAdmin}/>}
       {(fbUser||isAdmin)&&<div className="shell">
