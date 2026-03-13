@@ -154,16 +154,13 @@ export const GHANA_REGIONS = [
   },
 ];
 
-/** All region names as a flat array */
 export const REGION_NAMES = GHANA_REGIONS.map(r => r.region);
 
-/** Get districts for a given region name */
 export function getDistricts(regionName) {
   const found = GHANA_REGIONS.find(r => r.region === regionName);
   return found ? found.districts : [];
 }
 
-/** Business categories — includes "Other (specify)" */
 export const BUSINESS_CATEGORIES = [
   "Food & Restaurants",
   "Groceries & Supermarkets",
