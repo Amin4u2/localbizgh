@@ -1,0 +1,39 @@
+name: Deploy LocalBiz GH to Firebase
+
+on:
+  push:
+    branches:
+      - main          # deploys every time you push to main branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Download your code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Set up Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      # 3. Install npm packages
+      - name: Install dependencies
+        run: npm install
+
+      # 4. Build the production bundle
+      - name: Build
+        run: npm run build
+
+      # 5. Deploy to Firebase Hosting
+      - name: Deploy to Firebase
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          channelId: live
+          projectId: localbizgh
