@@ -36,14 +36,20 @@ import {
 }                                                 from "firebase/storage";
 
 // ── Config ────────────────────────────────────────────────────────────────────
+// ── Firebase config from environment variables (keeps keys out of GitHub) ──────
+// These are set in .env.local for development and as GitHub Secrets for production.
+// NOTE: Firebase web API keys are safe to be public (they identify your project,
+// not grant admin access). Security comes from Firestore Rules, not key secrecy.
+// Google's warning is about abuse monitoring — restricting the key in Google Cloud
+// Console (HTTP referrer restrictions) is the proper fix.
 const firebaseConfig = {
-  apiKey:            "AIzaSyDAAoqgHoK_bUaxnmbAnLCmBMiFJKZNtnk",
-  authDomain:        "localbizgh.firebaseapp.com",
-  projectId:         "localbizgh",
-  storageBucket:     "localbizgh.firebasestorage.app",
-  messagingSenderId: "481227507557",
-  appId:             "1:481227507557:web:5357590d23939dd16a038c",
-  measurementId:     "G-029DW0639J",
+  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY            || "AIzaSyDAAoqgHoK_bUaxnmbAnLCmBMiFJKZNtnk",
+  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN        || "localbizgh.firebaseapp.com",
+  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID         || "localbizgh",
+  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET     || "localbizgh.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID|| "481227507557",
+  appId:             import.meta.env.VITE_FIREBASE_APP_ID             || "1:481227507557:web:5357590d23939dd16a038c",
+  measurementId:     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID     || "G-029DW0639J",
 };
 
 const app       = initializeApp(firebaseConfig);
@@ -1273,6 +1279,67 @@ export async function getRiderByUsername(username) {
   const snap = await getDocs(q);
   if (snap.empty) return null;
   return { id: snap.docs[0].id, ...snap.docs[0].data() };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// REPORT A BUSINESS
+// ══════════════════════════════════════════════════════════════════════════════
+export async function reportBusiness(bizId, bizName, reporterId, reporterName, reason, details) {
+  const ref = doc(collection(db, "reports"));
+  await setDoc(ref, {
+    id: ref.id, bizId, bizName,
+    reporterId, reporterName,
+    reason, details,
+    status: "pending", // pending | reviewed | actioned
+    createdAt: serverTimestamp(), timestamp: Date.now(),
+  });
+  return ref.id;
+}
+
+export function listenReports(callback) {
+  const q = query(collection(db, "reports"), orderBy("timestamp", "desc"));
+  return onSnapshot(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+}
+
+export async function updateReportStatus(reportId, status, adminNote = "") {
+  await updateDoc(doc(db, "reports", reportId), {
+    status, adminNote, reviewedAt: serverTimestamp(),
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DEVELOPER MESSAGE INBOX
+// ══════════════════════════════════════════════════════════════════════════════
+export async function sendMessageToDeveloper(senderId, senderName, senderEmail, subject, message) {
+  const ref = doc(collection(db, "devMessages"));
+  await setDoc(ref, {
+    id: ref.id, senderId, senderName, senderEmail,
+    subject, message,
+    status: "unread", // unread | read | replied
+    reply: "", repliedAt: null,
+    createdAt: serverTimestamp(), timestamp: Date.now(),
+  });
+  return ref.id;
+}
+
+export function listenDevMessages(callback) {
+  const q = query(collection(db, "devMessages"), orderBy("timestamp", "desc"));
+  return onSnapshot(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+}
+
+export function listenMyMessages(senderId, callback) {
+  const q = query(collection(db, "devMessages"), where("senderId", "==", senderId), orderBy("timestamp", "desc"));
+  return onSnapshot(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+}
+
+export async function replyToMessage(messageId, reply) {
+  await updateDoc(doc(db, "devMessages", messageId), {
+    reply, status: "replied", repliedAt: serverTimestamp(),
+  });
+}
+
+export async function markMessageRead(messageId) {
+  await updateDoc(doc(db, "devMessages", messageId), { status: "read" });
 }
 
 export { auth, db, storage, analytics };
