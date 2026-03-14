@@ -7,9 +7,9 @@ const functions = require("firebase-functions");
 const https     = require("https");
 
 // ── Hubtel Credentials (stored securely on server, never in browser) ──────────
-const HUBTEL_API_ID   = "wppnllg";
-const HUBTEL_API_KEY  = "d229e5e5de5149ceb19bf707af075951";
-const HUBTEL_MERCHANT = "2022622";
+const HUBTEL_API_ID   = "wnp5kMz";
+const HUBTEL_API_KEY  = "wnp5kMz and API Key: 2b66330cf4c949dbab27fe61a8c8d56d";
+const HUBTEL_MERCHANT = "2030179";
 const APP_URL         = "https://localbizgh.web.app";
 
 // ── Helper: make HTTPS request ────────────────────────────────────────────────
