@@ -8,7 +8,7 @@ const https     = require("https");
 
 // ── Hubtel Credentials ────────────────────────────────────────────────────────
 // UPDATE THESE with your NEW credentials after regenerating on Hubtel dashboard
-const HUBTEL_API_ID   = "X7q7oXm ";
+const HUBTEL_API_ID   = "X7q7oXm";
 const HUBTEL_API_KEY  = "75673bfcfa254316b502de468b7fe2b1";
 const HUBTEL_MERCHANT = "2030179";
 const APP_URL         = "https://localbizgh.web.app";
