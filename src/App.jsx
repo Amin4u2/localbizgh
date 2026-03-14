@@ -43,25 +43,38 @@ const SMS_CLIENT_SECRET = "zpwfshan";
 const SMS_SENDER      = "AminMoroEnt";
 const APP_URL         = "https://localbizgh.web.app";
 
-// ── HUBTEL: Initiate Checkout ─────────────────────────────────────────────────
+// ── HUBTEL: Initiate Checkout via Firebase Function proxy ────────────────────
+// Calls our server-side Firebase Function to avoid CORS + expose credentials.
+// The Function at /initiateHubtelCheckout handles the actual Hubtel API call.
+const HUBTEL_FUNCTION_URL = "https://us-central1-localbizgh.cloudfunctions.net/initiateHubtelCheckout";
+
 async function initiateHubtelPayment(amount, description, clientRef) {
-  const auth = btoa(HUBTEL_API_ID + ":" + HUBTEL_API_KEY);
-  const body = JSON.stringify({
-    merchantAccountNumber: HUBTEL_MERCHANT,
-    description,
-    amount,
-    clientReference: clientRef,
-    returnUrl:       APP_URL + "?hubtel=success&clientReference=" + encodeURIComponent(clientRef),
-    cancellationUrl: APP_URL + "?hubtel=cancelled",
-  });
-  const res = await fetch("https://payproxyapi.hubtel.com/items/initiate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": "Basic " + auth },
-    body,
-  });
-  if (!res.ok) throw new Error("Hubtel HTTP " + res.status);
-  const data = await res.json();
-  return data?.data?.checkoutUrl || data?.checkoutUrl;
+  let res, data;
+
+  try {
+    res = await fetch(HUBTEL_FUNCTION_URL, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ amount, description, clientReference: clientRef }),
+    });
+    data = await res.json();
+  } catch (networkErr) {
+    throw new Error("Network error reaching payment server. Check your connection.");
+  }
+
+  if (!res.ok) {
+    // Friendly error messages for common cases
+    const msg =
+      res.status === 401 ? "Payment credentials invalid. Please contact the admin." :
+      res.status === 400 ? "Invalid payment details: " + (data?.error || "unknown") :
+      res.status === 503 ? "Payment service temporarily unavailable. Try again in a moment." :
+      (data?.error || `Payment server error (HTTP ${res.status})`);
+    throw new Error(msg);
+  }
+
+  const checkoutUrl = data?.checkoutUrl;
+  if (!checkoutUrl) throw new Error("Payment server did not return a checkout link.");
+  return checkoutUrl;
 }
 
 // ── HUBTEL: Send SMS ──────────────────────────────────────────────────────────
@@ -946,6 +959,8 @@ function AuthModal({mode, defaultRole, onClose, toast, onAdminAccess}) {
   const logoInputRef  = useRef();
   const photoInputRef = useRef();
   const [form, setForm] = useState({name:"",username:"",email:"",phone:"",password:"",region:"Greater Accra",town:"",businessName:"",category:"",vehicle:"Motorbike 🏍️",licenseNo:""});
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
+  const [showFullDisclaimer, setShowFullDisclaimer] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
   function pickLogo(file) {
@@ -968,6 +983,7 @@ function AuthModal({mode, defaultRole, onClose, toast, onAdminAccess}) {
         if(/[^a-zA-Z0-9_.]/.test(form.username)) throw new Error("Username can only contain letters, numbers, _ and .");
         if(form.password.length<6) throw new Error("Password must be at least 6 characters.");
         if(role==="business"&&!form.businessName) throw new Error("Please enter your business name.");
+        if((role==="business"||role==="rider")&&!disclaimerAccepted) throw new Error("You must read and accept the LocalBiz GH Terms & Disclaimer to create an account.");
         await registerUser(form.email,form.password,form.name,form.username,role,form.region,form.phone,{
           businessName:form.businessName, category:form.category==="Other (specify)"?(form.customCategory||"Other"):form.category||"Food & Restaurant",
           vehicle:form.vehicle, licenseNo:form.licenseNo,
@@ -1106,7 +1122,74 @@ function AuthModal({mode, defaultRole, onClose, toast, onAdminAccess}) {
           )}
           <div className="fgrp" style={{marginBottom:4}}><label>Password *</label><input className="finp" type="password" placeholder={isSu?"Min 6 characters":"Your password"} value={form.password} onChange={e=>set("password",e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/></div>
           {!isSu&&<div style={{textAlign:"right",marginBottom:8,marginTop:-2}}><ForgotPasswordModal /></div>}
-          <button className="btn-auth" onClick={submit} disabled={loading}>{loading?(isSu?"Creating account…":"Signing in…"):(isSu?"Create Account →":"Sign In →")}</button>
+
+          {/* ── DISCLAIMER for Business & Rider only ── */}
+          {isSu&&(role==="business"||role==="rider")&&(
+            <div style={{margin:"14px 0",borderRadius:14,overflow:"hidden",border:"2px solid rgba(239,68,68,.35)",background:"rgba(239,68,68,.04)"}}>
+              {/* Header */}
+              <div style={{background:"rgba(239,68,68,.1)",padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:22,flexShrink:0}}>⚠️</span>
+                <div>
+                  <div style={{fontWeight:800,fontSize:14,color:"#b91c1c"}}>LocalBiz GH — Merchant & Rider Disclaimer</div>
+                  <div style={{fontSize:11,color:"#ef4444",marginTop:1}}>Please read carefully before creating your account</div>
+                </div>
+              </div>
+              {/* Disclaimer body */}
+              <div style={{padding:"14px 16px",fontSize:13,color:"#374151",lineHeight:1.75}}>
+                <p style={{margin:"0 0 10px",fontWeight:700,color:"#b91c1c"}}>By creating a {role==="business"?"Business":"Rider"} account on LocalBiz GH, you agree to the following:</p>
+                <ol style={{paddingLeft:18,margin:"0 0 12px"}}>
+                  <li style={{marginBottom:8}}><strong>Honest Dealings:</strong> You must conduct all transactions honestly and transparently. Misrepresentation of products, services, pricing, or delivery terms is strictly prohibited.</li>
+                  <li style={{marginBottom:8}}><strong>No Scams or Fraud:</strong> Any form of scam, theft, fraudulent activity, or deception against customers will result in <strong>immediate account suspension</strong>.</li>
+                  <li style={{marginBottom:8}}><strong>Customer Refunds:</strong> If found culpable of delivering wrong, substandard, or no goods/services, you are obligated to <strong>refund the affected customer in full</strong>.</li>
+                  <li style={{marginBottom:8}}><strong>Report & Investigation:</strong> Customers have the right to report your {role==="business"?"shop":"rider profile"} to the LocalBiz GH developer team. All reports are reviewed and investigated seriously.</li>
+                  <li style={{marginBottom:8}}><strong>Disciplinary Actions:</strong> Depending on the severity of a verified complaint, LocalBiz GH reserves the right to:
+                    <ul style={{paddingLeft:16,marginTop:4}}>
+                      <li>⏸️ <strong>Suspend</strong> your account temporarily</li>
+                      <li>🚫 <strong>Revoke</strong> your account indefinitely</li>
+                      <li>🗑️ <strong>Permanently delete</strong> your {role==="business"?"shop":"profile"} from the platform</li>
+                    </ul>
+                  </li>
+                  {role==="business"&&<li style={{marginBottom:8}}><strong>Business Integrity:</strong> Your shop represents the LocalBiz GH marketplace. Poor service damages the entire platform's reputation. Maintain quality, respond to orders promptly, and treat every customer with respect.</li>}
+                  {role==="rider"&&<li style={{marginBottom:8}}><strong>Safe Delivery:</strong> You are responsible for the safe and timely delivery of all orders. Tampering with, stealing, or mishandling a customer's order is a criminal offence and will be reported to the appropriate authorities.</li>}
+                  <li><strong>Zero Tolerance:</strong> LocalBiz GH has a zero-tolerance policy for dishonest behaviour. Protecting our customers is our top priority.</li>
+                </ol>
+                <button onClick={()=>setShowFullDisclaimer(v=>!v)} style={{background:"none",border:"none",color:"#4f46e5",fontSize:12,fontWeight:700,cursor:"pointer",padding:0,textDecoration:"underline"}}>
+                  {showFullDisclaimer?"Hide full terms":"Read full platform terms →"}
+                </button>
+                {showFullDisclaimer&&(
+                  <div style={{marginTop:10,padding:"12px 14px",background:"rgba(79,70,229,.05)",borderRadius:10,border:"1px solid rgba(79,70,229,.15)",fontSize:12,color:"#4b5563",lineHeight:1.7}}>
+                    <strong>Full Platform Terms (Summary):</strong><br/>
+                    LocalBiz GH is a product of AMTECH SOFTWARE SOLUTIONS. By using this platform as a merchant or rider, you acknowledge that:
+                    (1) All data submitted is accurate and verifiable;
+                    (2) You will not use the platform for money laundering, illegal trade, or any activity that violates Ghana's laws;
+                    (3) Disputes between merchants/riders and customers will be mediated by LocalBiz GH developer team whose decision is final;
+                    (4) LocalBiz GH reserves the right to update these terms at any time with notice on the platform;
+                    (5) Continued use of the platform constitutes acceptance of updated terms.
+                    For questions contact: <strong>AMTECH SOFTWARE SOLUTIONS</strong> via the platform's Contact Developer feature.
+                  </div>
+                )}
+              </div>
+              {/* Checkbox */}
+              <div style={{padding:"12px 16px",borderTop:"1px solid rgba(239,68,68,.2)",background:"rgba(239,68,68,.06)"}}>
+                <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer"}}>
+                  <input
+                    type="checkbox"
+                    checked={disclaimerAccepted}
+                    onChange={e=>setDisclaimerAccepted(e.target.checked)}
+                    style={{marginTop:2,width:18,height:18,accentColor:"#16a34a",flexShrink:0,cursor:"pointer"}}
+                  />
+                  <span style={{fontSize:13,fontWeight:600,color:"#1f2937",lineHeight:1.5}}>
+                    I have read and understood the above disclaimer. I agree to conduct all activities on LocalBiz GH honestly and accept full responsibility for my {role==="business"?"business":"delivery"} conduct. I understand that violations may result in suspension, revocation, or permanent deletion of my account.
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          <button className="btn-auth" onClick={submit} disabled={loading||(isSu&&(role==="business"||role==="rider")&&!disclaimerAccepted)}
+            style={{opacity:(isSu&&(role==="business"||role==="rider")&&!disclaimerAccepted)?0.5:1,transition:"opacity .2s"}}>
+            {loading?(isSu?"Creating account…":"Signing in…"):(isSu?"Create Account →":"Sign In →")}
+          </button>
           <div className="auth-sw">{isSu?"Already have an account?":"Don't have an account?"}<button onClick={()=>{setIsSu(!isSu);setErr("");}}>  {isSu?"Sign in":"Create account"}</button></div>
         </div>
       </div>
@@ -3311,8 +3394,73 @@ function AdminDashboard({toast}) {
   const custUsers=allUsers.filter(u=>u.role==="customer");
 
   async function setPlan(bizId,plan){ try{await updateSubscription(bizId,plan);toast("Plan updated!");}catch(e){toast("Failed","error");} }
-  async function toggleBiz(id,cur){ try{await adminUpdateBusiness(id,{status:cur==="suspended"?"active":"suspended"});toast(cur==="suspended"?"Activated":"Suspended","warn");}catch(e){toast("Failed","error");} }
+
+  // Full business status control
+  async function setBizStatus(id, newStatus, bizName) {
+    const confirmMsgs = {
+      suspended: `Suspend "${bizName}"? They will be hidden from customers but data is kept.`,
+      revoked:   `Revoke "${bizName}"? Their shop will be deactivated indefinitely.`,
+      active:    `Reactivate "${bizName}"? Their shop will be restored to active status.`,
+      deleted:   `⚠️ PERMANENTLY DELETE "${bizName}"? This CANNOT be undone. All their data will be removed.`,
+    };
+    if (!window.confirm(confirmMsgs[newStatus] || `Set status to ${newStatus}?`)) return;
+    try {
+      if (newStatus === "deleted") {
+        // Hard delete from Firestore
+        const { getFirestore, doc, deleteDoc } = await import("firebase/firestore");
+        const { getApp } = await import("firebase/app");
+        const db = getFirestore(getApp());
+        await deleteDoc(doc(db, "businesses", id));
+        toast(`"${bizName}" has been permanently deleted.`, "warn");
+      } else {
+        await adminUpdateBusiness(id, {
+          status: newStatus,
+          statusUpdatedAt: new Date().toISOString(),
+          statusNote: newStatus === "suspended" ? "Suspended by admin" :
+                      newStatus === "revoked"   ? "Revoked by admin"   :
+                      "Reactivated by admin",
+        });
+        toast(
+          newStatus === "active"    ? `✅ "${bizName}" reactivated.` :
+          newStatus === "suspended" ? `⏸️ "${bizName}" suspended.` :
+          `🚫 "${bizName}" revoked.`, "warn"
+        );
+      }
+    } catch(e) { toast("Failed: " + e.message, "error"); }
+  }
+
   async function recordPayment(b){ const amt=PLANS[b.plan||"free"]?.price||0; if(amt===0){toast("Free plan — no payment to record","warn");return;} try{await logSubscriptionPayment(b.id,b.name,b.plan,amt);toast(`Payment of ${fmt(amt)} recorded for ${b.name}`);}catch(e){toast("Failed","error");} }
+
+  // Identify idle shops: on free plan for >6 months (180 days)
+  const SIX_MONTHS_MS = 180 * 24 * 60 * 60 * 1000;
+  const idleShops = businesses.filter(b => {
+    const isFreePlan = !b.plan || b.plan === "free";
+    const createdTs  = b.createdAt?.seconds ? b.createdAt.seconds * 1000 : (b.createdAt || 0);
+    const isOld      = (Date.now() - createdTs) > SIX_MONTHS_MS;
+    const isActive   = b.status === "active" || !b.status;
+    return isFreePlan && isOld && isActive;
+  });
+
+  // Business selected for detail view in admin
+  const [selAdminBiz, setSelAdminBiz] = useState(null);
+  const [bizFilter, setBizFilter]     = useState("all"); // all | active | suspended | revoked | idle | reported
+  const [bizSearch, setBizSearch]     = useState("");
+
+  const reportedBizIds = new Set(reports.map(r => r.bizId));
+
+  const filteredAdminBiz = businesses.filter(b => {
+    const matchSearch = !bizSearch || b.name.toLowerCase().includes(bizSearch.toLowerCase()) || (b.ownerName||"").toLowerCase().includes(bizSearch.toLowerCase());
+    const createdTs   = b.createdAt?.seconds ? b.createdAt.seconds * 1000 : (b.createdAt || 0);
+    const isIdle      = (!b.plan || b.plan === "free") && (Date.now() - createdTs) > SIX_MONTHS_MS && (b.status === "active" || !b.status);
+    const matchFilter =
+      bizFilter === "all"       ? true :
+      bizFilter === "active"    ? (b.status === "active" || !b.status) :
+      bizFilter === "suspended" ? b.status === "suspended" :
+      bizFilter === "revoked"   ? b.status === "revoked" :
+      bizFilter === "idle"      ? isIdle :
+      bizFilter === "reported"  ? reportedBizIds.has(b.id) : true;
+    return matchSearch && matchFilter;
+  });
   async function doOnboard(){ if(!nb.name||!nb.owner){toast("Name and owner required","warn");return;} try{await adminAddBusiness({ownerId:"admin",ownerName:nb.owner,ownerEmail:nb.email,ownerPhone:nb.phone,name:nb.name,category:nb.type,region:nb.region,plan:nb.plan,status:"active",ordersCount:0,rating:0,products:[],description:"",logo:""});toast("Business onboarded! 🏪");setShowOnboard(false);setNb({name:"",owner:"",email:"",phone:"",type:"Food & Restaurant",plan:"free",region:"Greater Accra"});}catch(e){toast("Failed: "+e.message,"error");} }
 
   const months=["Aug","Sep","Oct","Nov","Dec","Jan"];
@@ -3337,7 +3485,10 @@ function AdminDashboard({toast}) {
       <div className="adm-stats">
         {[{v:businesses.length,l:"Businesses",c:"as-amb",i:"🏪"},{v:custUsers.length,l:"Customers",c:"as-grn",i:"🛍️"},
           {v:allRiders.length,l:"Riders",c:"as-cor",i:"🏍️"},{v:allOrders.length,l:"Orders",c:"as-blu",i:"📦"},
-          {v:businesses.filter(b=>["monthly","quarter","biannual","annual"].includes(b.plan)).length,l:"Paid Plans",c:"as-pur",i:"💎"}
+          {v:businesses.filter(b=>["monthly","quarter","biannual","annual"].includes(b.plan)).length,l:"Paid Plans",c:"as-pur",i:"💎"},
+          {v:idleShops.length,l:"Idle Shops",c:"as-amb",i:"⚠️"},
+          {v:reports.filter(r=>r.status==="open").length,l:"Open Reports",c:"as-cor",i:"🚨"},
+          {v:devMsgs.filter(m=>m.status==="unread").length,l:"New Messages",c:"as-blu",i:"📬"},
         ].map(({v,l,c,i})=><div key={l} className={`as ${c}`}><div className="as-v">{v}</div><div className="as-l">{l}</div><div className="as-ico">{i}</div></div>)}
       </div>
 
@@ -3354,7 +3505,7 @@ function AdminDashboard({toast}) {
       </div>
 
       {admTab==="subscriptions"&&<>
-        <div className="sect-head"><span className="sect-h">Subscription Management</span><button className="btn-onboard" onClick={()=>setShowOnboard(true)}>+ Onboard Business</button></div>
+        <div className="sect-head"><span className="sect-h">Subscription Management</span></div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(175px,1fr))",gap:12,marginBottom:20}}>
           {Object.entries(PLANS).map(([k,p])=>{const cnt=businesses.filter(b=>b.plan===k&&b.status!=="suspended").length;return(
             <div key={k} style={{background:"white",borderRadius:"var(--r2)",padding:16,boxShadow:"var(--sh)"}}>
@@ -3404,23 +3555,155 @@ function AdminDashboard({toast}) {
       </>}
 
       {admTab==="businesses"&&<>
-        <div className="sect-head"><span className="sect-h">All Businesses ({businesses.length})</span></div>
-        <div className="adm-tbl">
-          <div className="tbl-hd" style={{gridTemplateColumns:"2fr 1fr 1fr 1fr 80px"}}><span>Business</span><span>Region</span><span>Plan</span><span>Status</span><span>Action</span></div>
-          {businesses.length===0?<div style={{padding:24,textAlign:"center",color:"var(--muted)",fontSize:13}}>No businesses yet.</div>:
-            businesses.map(b=>(
-              <div key={b.id} className="tbl-row" style={{gridTemplateColumns:"2fr 1fr 1fr 1fr 80px"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  {b.logo&&<img src={b.logo} style={{width:28,height:28,borderRadius:7,objectFit:"cover"}} alt="" onError={e=>e.target.style.display="none"}/>}
-                  <div><div className="t-name">{b.name}</div><div className="t-sub">{b.ownerName} · {b.category}</div></div>
+        {/* ── Header + Summary ── */}
+        <div className="sect-head">
+          <span className="sect-h">All Businesses ({businesses.length})</span>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            {idleShops.length>0&&(
+              <span style={{padding:"4px 12px",borderRadius:20,background:"rgba(245,158,11,.15)",color:"var(--amber2)",fontSize:12,fontWeight:700}}>
+                ⚠️ {idleShops.length} Idle Shop{idleShops.length>1?"s":""}
+              </span>
+            )}
+            {reportedBizIds.size>0&&(
+              <span style={{padding:"4px 12px",borderRadius:20,background:"rgba(239,68,68,.12)",color:"var(--red)",fontSize:12,fontWeight:700}}>
+                🚨 {reportedBizIds.size} Reported
+              </span>
+            )}
+            <button className="btn-onboard" onClick={()=>setShowOnboard(true)}>+ Onboard Business</button>
+          </div>
+        </div>
+
+        {/* ── Filter bar ── */}
+        <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+          <input value={bizSearch} onChange={e=>setBizSearch(e.target.value)}
+            placeholder="Search businesses..."
+            style={{flex:1,minWidth:160,padding:"8px 12px",borderRadius:"var(--r)",border:"1.5px solid var(--border2)",fontSize:13,fontFamily:"var(--fb)",outline:"none"}}/>
+          {[
+            ["all",      "All",       businesses.length],
+            ["active",   "✅ Active",  businesses.filter(b=>b.status==="active"||!b.status).length],
+            ["suspended","⏸️ Suspended",businesses.filter(b=>b.status==="suspended").length],
+            ["revoked",  "🚫 Revoked", businesses.filter(b=>b.status==="revoked").length],
+            ["idle",     "⚠️ Idle",    idleShops.length],
+            ["reported", "🚨 Reported",reportedBizIds.size],
+          ].map(([f,l,c])=>(
+            <button key={f} onClick={()=>setBizFilter(f)}
+              style={{padding:"6px 12px",borderRadius:"var(--r)",border:`1.5px solid ${bizFilter===f?"var(--g1)":"var(--border2)"}`,background:bizFilter===f?"var(--g1)":"white",color:bizFilter===f?"white":"var(--muted)",fontFamily:"var(--fb)",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+              {l} <span style={{opacity:.7}}>({c})</span>
+            </button>
+          ))}
+        </div>
+
+        {/* ── Idle shops alert banner ── */}
+        {bizFilter==="idle"&&idleShops.length>0&&(
+          <div style={{background:"rgba(245,158,11,.08)",border:"1.5px solid rgba(245,158,11,.3)",borderRadius:"var(--r2)",padding:"14px 16px",marginBottom:16}}>
+            <div style={{fontWeight:800,fontSize:14,color:"var(--amber2)",marginBottom:4}}>⚠️ Idle Shops — No Paid Subscription for 6+ Months</div>
+            <p style={{fontSize:13,color:"var(--muted)",margin:"0 0 12px"}}>These businesses have been on the Free plan for over 6 months. You can notify, suspend, or remove them to maintain platform quality.</p>
+            <button onClick={async()=>{
+              if(!window.confirm(`Suspend all ${idleShops.length} idle shops? They can be reactivated later.`))return;
+              for(const b of idleShops) await adminUpdateBusiness(b.id,{status:"suspended",statusNote:"Auto-suspended: inactive free plan >6 months"});
+              toast(`${idleShops.length} idle shops suspended.`,"warn");
+            }} style={{padding:"8px 16px",borderRadius:"var(--r)",border:"none",background:"var(--amber)",color:"var(--ink)",fontFamily:"var(--fb)",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+              ⏸️ Suspend All Idle Shops
+            </button>
+          </div>
+        )}
+
+        {filteredAdminBiz.length===0&&<div style={{padding:40,textAlign:"center",color:"var(--muted)",fontSize:14}}>No businesses match this filter.</div>}
+
+        {/* ── Business cards ── */}
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          {filteredAdminBiz.map(b=>{
+            const isIdle     = (!b.plan||b.plan==="free") && ((Date.now()-(b.createdAt?.seconds?b.createdAt.seconds*1000:(b.createdAt||0)))>SIX_MONTHS_MS) && (b.status==="active"||!b.status);
+            const isReported = reportedBizIds.has(b.id);
+            const bizReports = reports.filter(r=>r.bizId===b.id);
+            const statusColor= b.status==="active"||!b.status ? "#16a34a" : b.status==="suspended" ? "#d97706" : b.status==="revoked" ? "#ef4444" : "#6b7280";
+            const statusBg   = b.status==="active"||!b.status ? "rgba(22,163,74,.1)" : b.status==="suspended" ? "rgba(217,119,6,.1)" : b.status==="revoked" ? "rgba(239,68,68,.1)" : "rgba(107,114,128,.1)";
+            return (
+            <div key={b.id} style={{background:"white",borderRadius:"var(--r2)",boxShadow:"var(--sh)",border:`1.5px solid ${isReported?"rgba(239,68,68,.3)":isIdle?"rgba(245,158,11,.3)":"var(--border2)"}`,overflow:"hidden"}}>
+              {/* Top row */}
+              <div style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                {b.logo
+                  ? <img src={b.logo} style={{width:44,height:44,borderRadius:10,objectFit:"cover",flexShrink:0}} alt="" onError={e=>e.target.style.display="none"}/>
+                  : <div style={{width:44,height:44,borderRadius:10,background:"var(--cream2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>{catEmo(b.category)}</div>
+                }
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:800,fontSize:15,color:"var(--ink)"}}>{b.name}</div>
+                  <div style={{fontSize:12,color:"var(--muted)",marginTop:1}}>👤 {b.ownerName} · 📞 {b.ownerPhone||b.ownerEmail||"—"}</div>
+                  <div style={{fontSize:11,color:"var(--dim)",marginTop:1}}>📍 {b.region}{b.town?", "+b.town:""} · {b.category}</div>
                 </div>
-                <div style={{fontSize:12}}>{b.region}</div>
-                <div><select value={b.plan||"free"} onChange={e=>setPlan(b.id,e.target.value)} style={{padding:"3px 7px",borderRadius:7,border:"1px solid var(--border2)",fontSize:11,fontWeight:700,cursor:"pointer",background:"transparent",fontFamily:"var(--fb)"}}>{Object.entries(PLANS).map(([k,p])=><option key={k} value={k}>{p.label}</option>)}</select></div>
-                <div><div style={{display:"flex",alignItems:"center",gap:5}}><div className="sdot" style={{background:b.status==="active"?"var(--lime2)":"var(--red)"}}/><span style={{fontSize:11,fontWeight:700,color:b.status==="active"?"var(--lime3)":"var(--red)"}}>{b.status||"active"}</span></div></div>
-                <div><button className={`adm-act ${b.status==="suspended"?"aa-act":"aa-sus"}`} onClick={()=>toggleBiz(b.id,b.status)}>{b.status==="suspended"?"Activate":"Suspend"}</button></div>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5,flexShrink:0}}>
+                  <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:800,background:statusBg,color:statusColor}}>
+                    {b.status==="active"||!b.status?"✅ Active":b.status==="suspended"?"⏸️ Suspended":b.status==="revoked"?"🚫 Revoked":"🗑️ "+b.status}
+                  </span>
+                  {isIdle&&<span style={{padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800,background:"rgba(245,158,11,.15)",color:"var(--amber2)"}}>⚠️ Idle 6mo+</span>}
+                  {isReported&&<span style={{padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800,background:"rgba(239,68,68,.1)",color:"var(--red)"}}>🚨 {bizReports.length} Report{bizReports.length>1?"s":""}</span>}
+                </div>
               </div>
-            ))
-          }
+
+              {/* Stats row */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderTop:"1px solid var(--border2)",borderBottom:"1px solid var(--border2)"}}>
+                {[
+                  ["Plan",    <span style={{padding:"2px 8px",borderRadius:8,fontSize:11,fontWeight:800,background:PLANS[b.plan||"free"]?.bg,color:PLANS[b.plan||"free"]?.color}}>{PLANS[b.plan||"free"]?.label}</span>],
+                  ["Orders",  b.ordersCount||0],
+                  ["Revenue", fmt(b.revenue||0)],
+                  ["Joined",  dstr(b.createdAt||0)],
+                ].map(([l,v])=>(
+                  <div key={l} style={{padding:"8px 12px",textAlign:"center",borderRight:"1px solid var(--border2)"}}>
+                    <div style={{fontSize:10,color:"var(--muted)",fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:3}}>{l}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:"var(--ink)"}}>{v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Reports preview */}
+              {bizReports.length>0&&(
+                <div style={{padding:"10px 16px",background:"rgba(239,68,68,.04)",borderBottom:"1px solid rgba(239,68,68,.12)"}}>
+                  <div style={{fontSize:11,fontWeight:800,color:"var(--red)",marginBottom:5}}>🚨 REPORTS ({bizReports.length})</div>
+                  {bizReports.slice(0,2).map(r=>(
+                    <div key={r.id} style={{fontSize:12,color:"var(--muted)",marginBottom:3}}>
+                      • <strong>{r.reason}</strong> — {r.customerName} · {dstr(r.timestamp)}
+                      {r.status==="resolved"&&<span style={{color:"var(--lime3)",marginLeft:4}}>✓ Resolved</span>}
+                    </div>
+                  ))}
+                  {bizReports.length>2&&<div style={{fontSize:11,color:"var(--muted)"}}>+{bizReports.length-2} more reports</div>}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div style={{padding:"10px 16px",display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                {/* Plan changer */}
+                <select value={b.plan||"free"} onChange={e=>setPlan(b.id,e.target.value)}
+                  style={{padding:"6px 10px",borderRadius:"var(--r)",border:"1.5px solid var(--border2)",fontSize:12,fontWeight:700,cursor:"pointer",background:"white",fontFamily:"var(--fb)",color:"var(--ink)"}}>
+                  {Object.entries(PLANS).map(([k,p])=><option key={k} value={k}>{p.label}</option>)}
+                </select>
+
+                {/* Status actions */}
+                {(b.status==="suspended"||b.status==="revoked")&&(
+                  <button onClick={()=>setBizStatus(b.id,"active",b.name)}
+                    style={{padding:"6px 14px",borderRadius:"var(--r)",border:"none",background:"rgba(22,163,74,.12)",color:"#15803d",fontFamily:"var(--fb)",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+                    ✅ Reactivate
+                  </button>
+                )}
+                {(b.status==="active"||!b.status)&&(
+                  <button onClick={()=>setBizStatus(b.id,"suspended",b.name)}
+                    style={{padding:"6px 14px",borderRadius:"var(--r)",border:"none",background:"rgba(245,158,11,.12)",color:"var(--amber2)",fontFamily:"var(--fb)",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+                    ⏸️ Suspend
+                  </button>
+                )}
+                {b.status!=="revoked"&&(
+                  <button onClick={()=>setBizStatus(b.id,"revoked",b.name)}
+                    style={{padding:"6px 14px",borderRadius:"var(--r)",border:"none",background:"rgba(239,68,68,.1)",color:"var(--red)",fontFamily:"var(--fb)",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+                    🚫 Revoke
+                  </button>
+                )}
+                <button onClick={()=>setBizStatus(b.id,"deleted",b.name)}
+                  style={{padding:"6px 14px",borderRadius:"var(--r)",border:"1.5px solid rgba(239,68,68,.3)",background:"white",color:"var(--red)",fontFamily:"var(--fb)",fontSize:12,fontWeight:800,cursor:"pointer",marginLeft:"auto"}}>
+                  🗑️ Delete
+                </button>
+              </div>
+            </div>
+            );
+          })}
         </div>
       </>}
 
