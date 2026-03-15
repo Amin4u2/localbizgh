@@ -224,7 +224,7 @@ export const GHANA_REGIONS = [
     region: "Savannah Region",
     districts: [
       "Damongo Municipal",
-      "Bole District",
+      "Bole Municipal",
       "Sawla Tuna Kalba",
       "Central Gonja",
       "East Gonja Municipal",
