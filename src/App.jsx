@@ -1552,7 +1552,10 @@ Please confirm this order on your LocalBiz dashboard.`;
                   return <span key={p} style={{padding:"4px 9px",borderRadius:20,background:"var(--cream2)",fontSize:11,fontWeight:700}}>{labels[p]||p}</span>;
                 })}
               </div>
-              {selBiz.riderFee&&<div style={{marginTop:9,fontSize:12,color:"var(--muted)",fontWeight:600}}>🏍️ Delivery fee: <strong style={{color:"var(--g1)"}}>{fmt(selBiz.riderFee)}</strong></div>}
+              <div style={{marginTop:9,fontSize:12,color:"var(--muted)",fontWeight:600}}>
+                🏍️ Delivery fee: <strong style={{color:"var(--g1)"}}>{selBiz.riderFee?fmt(selBiz.riderFee):"Free"}</strong>
+                {selBiz.deliveryNote&&<div style={{marginTop:5,padding:"6px 10px",borderRadius:8,background:"rgba(245,158,11,.08)",border:"1px solid rgba(245,158,11,.2)",fontSize:11,color:"#92400e",lineHeight:1.5}}><strong>📌 NB:</strong> {selBiz.deliveryNote}</div>}
+              </div>
             </div>
           )}
         </div>
@@ -2811,13 +2814,67 @@ function BusinessApp({user, profile, toast}) {
 
         {/* Delivery */}
         <div style={{background:"white",borderRadius:"var(--r2)",padding:22,boxShadow:"var(--sh)"}}>
-          <h3 style={{fontFamily:"var(--ff)",fontSize:16,marginBottom:14}}>🏍️ Delivery Information</h3>
-          <div className="frow2">
-            <div className="fgrp"><label>Rider Delivery Fee (GH₵)</label>
-              <input className="finp" type="number" placeholder="e.g. 15" value={shopForm.riderFee} onChange={e=>setSF("riderFee",e.target.value)}/>
+          <h3 style={{fontFamily:"var(--ff)",fontSize:16,marginBottom:6}}>🏍️ Delivery Information</h3>
+          <p style={{fontSize:12,color:"var(--muted)",marginBottom:14,lineHeight:1.6}}>
+            Set your delivery fee and any notes for customers. This appears on your shop page before customers place orders.
+          </p>
+
+          {/* NB disclaimer shown to customers */}
+          <div style={{background:"rgba(245,158,11,.08)",border:"1.5px solid rgba(245,158,11,.25)",borderRadius:10,padding:"12px 14px",marginBottom:16}}>
+            <div style={{fontWeight:800,fontSize:13,color:"var(--amber2)",marginBottom:4}}>📢 Customer Notice Preview</div>
+            <div style={{fontSize:12,color:"#555",lineHeight:1.7}}>
+              This is what customers will see on your shop page:
             </div>
-            <div className="fgrp"><label>Delivery Note to Customers</label>
-              <input className="finp" placeholder="e.g. Delivery within 45 mins in Accra" value={shopForm.deliveryNote} onChange={e=>setSF("deliveryNote",e.target.value)}/>
+            <div style={{marginTop:8,background:"white",borderRadius:8,padding:"10px 12px",fontSize:12,color:"var(--ink)",border:"1px solid var(--border2)",lineHeight:1.7}}>
+              <strong>🏍️ Delivery Fee: </strong>
+              {shopForm.riderFee ? `GH₵ ${shopForm.riderFee}` : "Free / Not set"}
+              {shopForm.deliveryNote && <><br/><strong>📌 NB: </strong>{shopForm.deliveryNote}</>}
+              {!shopForm.deliveryNote && <><br/><span style={{color:"var(--dim)"}}>No delivery note set — add one below</span></>}
+            </div>
+          </div>
+
+          <div className="frow2">
+            <div className="fgrp">
+              <label>Rider Delivery Fee (GH₵)
+                <span style={{fontSize:10,fontWeight:500,color:"var(--dim)",marginLeft:6}}>— type any amount e.g. 10, 15, 20</span>
+              </label>
+              <input className="finp" type="number" min="0" step="0.50"
+                placeholder="e.g. 15"
+                value={shopForm.riderFee}
+                onChange={e=>setSF("riderFee",e.target.value)}/>
+              <div style={{fontSize:11,color:"var(--dim)",marginTop:4}}>💡 Leave blank or 0 for free delivery</div>
+            </div>
+            <div className="fgrp">
+              <label>📌 NB / Delivery Note to Customers
+                <span style={{fontSize:10,fontWeight:500,color:"var(--dim)",marginLeft:6}}>— shown on your shop page</span>
+              </label>
+              <input className="finp"
+                placeholder="e.g. Delivery within Accra only. Fee may vary by distance."
+                value={shopForm.deliveryNote}
+                onChange={e=>setSF("deliveryNote",e.target.value)}/>
+              <div style={{fontSize:11,color:"var(--dim)",marginTop:4}}>
+                💡 You can mention distance limits, zones, or any delivery conditions here
+              </div>
+            </div>
+          </div>
+
+          {/* Delivery zones helper */}
+          <div style={{marginTop:12,background:"var(--cream)",borderRadius:8,padding:"10px 14px",border:"1px solid var(--border2)"}}>
+            <div style={{fontWeight:700,fontSize:12,color:"var(--g1)",marginBottom:6}}>📝 Example delivery notes you can use:</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {[
+                "Delivery within 5km of shop only",
+                "Fee varies by distance — contact us first",
+                "Free delivery on orders above GH₵100",
+                "Same-day delivery within the municipality",
+                "Delivery fee negotiable for bulk orders",
+                "We deliver across the region — fee based on location",
+              ].map(ex=>(
+                <button key={ex} onClick={()=>setSF("deliveryNote",ex)}
+                  style={{padding:"4px 10px",borderRadius:20,border:"1px solid var(--border2)",background:"white",fontSize:11,color:"var(--muted)",cursor:"pointer",fontFamily:"var(--fb)"}}>
+                  {ex}
+                </button>
+              ))}
             </div>
           </div>
         </div>
@@ -3259,7 +3316,8 @@ function RiderApp({user, profile, toast}) {
                   <div style={{flex:1}}>
                     <div style={{fontWeight:800,fontSize:14}}>{b.name}</div>
                     <div style={{fontSize:11,color:"var(--muted)"}}>{b.category} · {b.region}</div>
-                    {b.riderFee&&<div style={{fontSize:11,color:"var(--coral)",fontWeight:600,marginTop:2}}>🏍️ Rider fee: {fmt(b.riderFee)} per delivery</div>}
+                    <div style={{fontSize:11,color:"var(--coral)",fontWeight:600,marginTop:2}}>🏍️ {b.riderFee?`Delivery: ${fmt(b.riderFee)}`:"Free delivery"}</div>
+                {b.deliveryNote&&<div style={{fontSize:10,color:"var(--amber2)",fontWeight:600,marginTop:2,lineHeight:1.4}}>📌 {b.deliveryNote}</div>}
                   </div>
                 </div>
                 {existing
@@ -4149,7 +4207,8 @@ function PublicShopPage({biz, toast, onClose, user, profile}) {
         <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
           {biz.contactPhone&&<a href={`tel:${biz.contactPhone}`} style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"rgba(255,255,255,.12)",color:"white",fontWeight:600,textDecoration:"none"}}>📞 {biz.contactPhone}</a>}
           {biz.whatsapp&&<a href={`https://wa.me/${(biz.whatsapp||"").replace(/\D/g,"")}`} target="_blank" rel="noreferrer" style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"rgba(37,211,102,.2)",color:"#4ade80",fontWeight:600,textDecoration:"none"}}>💬 WhatsApp</a>}
-          {biz.riderFee&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"rgba(255,255,255,.1)",color:"rgba(255,255,255,.7)",fontWeight:600}}>🏍️ Delivery: {fmt(biz.riderFee)}</span>}
+          <span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"rgba(255,255,255,.1)",color:"rgba(255,255,255,.7)",fontWeight:600}}>🏍️ {biz.riderFee?`Delivery: ${fmt(biz.riderFee)}`:"Free Delivery"}</span>
+          {biz.deliveryNote&&<span style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"rgba(245,158,11,.15)",color:"#fbbf24",fontWeight:600}}>📌 {biz.deliveryNote}</span>}
         </div>
       </div>
 
