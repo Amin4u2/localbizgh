@@ -1251,7 +1251,7 @@ function Landing({onAuth, onAdminDirect}) {
           </div>
           {devBoxErr&&<div style={{background:"rgba(239,68,68,.12)",border:"1px solid rgba(239,68,68,.3)",borderRadius:9,padding:"9px 12px",color:"#fca5a5",fontSize:12,marginBottom:12}}>❌ {devBoxErr}</div>}
           <input style={{width:"100%",padding:"11px 13px",borderRadius:12,border:"1.5px solid rgba(255,255,255,.1)",background:"rgba(255,255,255,.07)",color:"white",fontFamily:"var(--fb)",fontSize:14,outline:"none",marginBottom:10}} placeholder="Username" value={devU} onChange={e=>{setDevU(e.target.value);setDevBoxErr("");}}/>
-          <input style={{width:"100%",padding:"11px 13px",borderRadius:12,border:"1.5px solid rgba(255,255,255,.1)",background:"rgba(255,255,255,.07)",color:"white",fontFamily:"var(--fb)",fontSize:14,outline:"none",marginBottom:16}} type="password" placeholder="••••••••••" value={devP} onChange={e=>{setDevP(e.target.value);setDevBoxErr("");}} onKeyDown={e=>e.key==="Enter"&&tryDevLogin()}/>
+          <input style={{width:"100%",padding:"11px 13px",borderRadius:12,border:"1.5px solid rgba(255,255,255,.1)",background:"rgba(255,255,255,.07)",color:"white",fontFamily:"var(--fb)",fontSize:14,outline:"none",marginBottom:16}} type="password" placeholder="••••••••••" onChange={e=>{setDevP(e.target.value);setDevBoxErr("");}} onKeyDown={e=>e.key==="Enter"&&tryDevLogin()}/>
           <button onClick={tryDevLogin} disabled={devLoading} style={{width:"100%",padding:13,borderRadius:12,border:"none",background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#1c1209",fontFamily:"var(--fb)",fontSize:14,fontWeight:800,cursor:devLoading?"not-allowed":"pointer",opacity:devLoading?.7:1}}>
             {devLoading?"Authenticating…":"Access Dashboard →"}
           </button>
@@ -3380,14 +3380,24 @@ function AdminDashboard({toast}) {
   const [allRiders,setAllRiders]=useState([]);
   const [allOrders,setAllOrders]=useState([]);
   const [payments,setPayments]=useState([]);
+  const [devMsgs,setDevMsgs]=useState([]);
+  const [reports,setReports]=useState([]);
   const [admTab,setAdmTab]=useState("subscriptions");
   const [showOnboard,setShowOnboard]=useState(false);
+  const [selMsg,setSelMsg]=useState(null);
+  const [selReport,setSelReport]=useState(null);
+  const [replyText,setReplyText]=useState("");
+  const [bizFilter,setBizFilter]=useState("all");
+  const [bizSearch,setBizSearch]=useState("");
   const [nb,setNb]=useState({name:"",owner:"",email:"",phone:"",type:"Food & Restaurant",plan:"free",region:"Greater Accra"});
 
   useEffect(()=>{
     const u1=listenBusinesses(setBusinesses);const u2=listenAllUsers(setAllUsers);
-    const u3=listenAllRiders(setAllRiders);const u4=listenAllOrders(setAllOrders);const u5=listenAllPayments(setPayments);
-    return()=>{u1();u2();u3();u4();u5();};
+    const u3=listenAllRiders(setAllRiders);const u4=listenAllOrders(setAllOrders);
+    const u5=listenAllPayments(setPayments);
+    const u6=listenDevMessages(setDevMsgs);
+    const u7=listenReports(setReports);
+    return()=>{u1();u2();u3();u4();u5();u6();u7();};
   },[]);
 
   const totalMRR=businesses.filter(b=>b.status!=="suspended").reduce((s,b)=>s+(PLANS[b.plan||"free"]?.price||0),0);
