@@ -2361,7 +2361,28 @@ function BusinessApp({user, profile, toast}) {
             </div>
             <div className="oc-cust"><div className="oc-av">👤</div><div><div className="oc-cname">{o.customerName}</div><div className="oc-caddr">📍 {o.address}</div><div className="oc-caddr">📱 {o.customerPhone} · {PAYMENTS.find(p=>p.v===o.payment)?.label||o.payment}</div></div></div>
             <div className="oc-items">{(o.items||[]).map(i=>`${i.emoji||"📦"} ${i.name} ×${i.qty}`).join(" · ")}</div>
-            {o.riderName&&<div className="oc-rider">🏍️ {o.riderName} · {o.riderPhone}</div>}
+            {o.riderName&&(
+              <div style={{background:"rgba(74,222,128,.07)",borderRadius:8,padding:"8px 10px",margin:"6px 0",border:"1px solid rgba(74,222,128,.2)"}}>
+                <div style={{fontWeight:700,fontSize:12,color:"var(--g1)",marginBottom:5}}>🏍️ Assigned Rider: {o.riderName}</div>
+                {o.riderPhone&&(
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <a href={`tel:${o.riderPhone}`}
+                      style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,background:"rgba(59,158,255,.12)",color:"var(--blue)",fontSize:11,fontWeight:700,textDecoration:"none"}}>
+                      📞 Call {o.riderPhone}
+                    </a>
+                    <a href={`https://wa.me/${(o.riderPhone||"").replace(/\D/g,"").replace(/^0/,"233")}?text=${encodeURIComponent(`Hi ${o.riderName}, your delivery from ${o.businessName||"the shop"} is ready. Order: ${o.orderId||o.id}. Customer: ${o.customerName} at ${o.address}. Please proceed with the delivery.`)}`}
+                      target="_blank" rel="noreferrer"
+                      style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,background:"rgba(37,211,102,.15)",color:"#16a34a",fontSize:11,fontWeight:700,textDecoration:"none"}}>
+                      💬 WhatsApp
+                    </a>
+                    <a href={`sms:${o.riderPhone}?body=${encodeURIComponent(`Hi ${o.riderName}, delivery ready at ${o.businessName||"shop"}. Order ${o.orderId||o.id} for ${o.customerName}.`)}`}
+                      style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,background:"rgba(168,85,247,.12)",color:"var(--purple)",fontSize:11,fontWeight:700,textDecoration:"none"}}>
+                      ✉️ SMS
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="oc-foot"><span className="oc-total">{fmt(o.total)}</span></div>
             {/* Rider fee editor — visible on preparing step */}
             {(o.status==="confirmed"||o.status==="preparing")&&!o.deliveryType!=="walkin"&&(
@@ -2405,11 +2426,44 @@ function BusinessApp({user, profile, toast}) {
                 {riders.filter(r=>r.available).length===0
                   ?<p style={{fontSize:12,color:"var(--muted)",textAlign:"center",padding:"10px 0"}}>No riders online right now. Check again shortly.</p>
                   :riders.filter(r=>r.available).map(r=>(
-                    <div key={r.id} className={"rider-avail-card"+(selRider===r.id?" sel":"")} onClick={()=>setSelRider(r.id)}>
-                      {r.photo?<img src={r.photo} style={{width:36,height:36,borderRadius:"50%",objectFit:"cover",border:"2px solid var(--lime2)",flexShrink:0}} alt="" onError={e=>e.target.style.display="none"}/>:<div style={{width:36,height:36,borderRadius:"50%",background:"var(--g1)",color:"var(--lime)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,flexShrink:0}}>{(r.name||"R")[0]}</div>}
-                      <div style={{flex:1}}><div style={{fontWeight:700,fontSize:12}}>{r.name}</div><div style={{fontSize:10,color:"var(--muted)"}}>{r.vehicle} · {r.phone}</div></div>
-                      <div style={{color:"var(--amber2)",fontSize:11,fontWeight:700}}>⭐ {Number(r.rating||5).toFixed(1)}</div>
-                      {selRider===r.id&&<span style={{color:"var(--g1)",fontSize:18,fontWeight:900,marginLeft:6}}>✓</span>}
+                    <div key={r.id} style={{marginBottom:8}}>
+                      {/* Rider card — tap to select */}
+                      <div className={"rider-avail-card"+(selRider===r.id?" sel":"")} onClick={()=>setSelRider(r.id)}
+                        style={{marginBottom:0,borderRadius:"var(--r) var(--r) 0 0"}}>
+                        {r.photo?<img src={r.photo} style={{width:36,height:36,borderRadius:"50%",objectFit:"cover",border:"2px solid var(--lime2)",flexShrink:0}} alt="" onError={e=>e.target.style.display="none"}/>:<div style={{width:36,height:36,borderRadius:"50%",background:"var(--g1)",color:"var(--lime)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,flexShrink:0}}>{(r.name||"R")[0]}</div>}
+                        <div style={{flex:1}}>
+                          <div style={{fontWeight:700,fontSize:12}}>{r.name}</div>
+                          <div style={{fontSize:10,color:"var(--muted)"}}>{r.vehicle} · ⭐ {Number(r.rating||5).toFixed(1)} · {r.trips||0} trips</div>
+                          {r.phone&&<div style={{fontSize:10,color:"var(--g3)",fontWeight:600}}>📞 {r.phone}</div>}
+                        </div>
+                        {selRider===r.id&&<span style={{color:"var(--g1)",fontSize:18,fontWeight:900,marginLeft:6}}>✓</span>}
+                      </div>
+                      {/* Contact buttons shown below each rider card */}
+                      <div style={{display:"flex",gap:6,padding:"6px 8px",background:"var(--cream2)",borderRadius:"0 0 var(--r) var(--r)",border:"1px solid var(--border2)",borderTop:"none"}}>
+                        <span style={{fontSize:10,color:"var(--muted)",fontWeight:700,alignSelf:"center",marginRight:2}}>Alert rider:</span>
+                        {r.phone&&(
+                          <a href={`tel:${r.phone}`}
+                            style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,background:"rgba(59,158,255,.12)",color:"var(--blue)",fontSize:11,fontWeight:700,textDecoration:"none",flexShrink:0}}
+                            onClick={e=>e.stopPropagation()}>
+                            📞 Call
+                          </a>
+                        )}
+                        {r.phone&&(
+                          <a href={`https://wa.me/${(r.phone||"").replace(/\D/g,"").replace(/^0/,"233")}?text=${encodeURIComponent(`Hi ${r.name}, there is a delivery job waiting for you at ${biz.name}. Please come in to collect the order. Thank you!`)}`}
+                            target="_blank" rel="noreferrer"
+                            style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,background:"rgba(37,211,102,.15)",color:"#16a34a",fontSize:11,fontWeight:700,textDecoration:"none",flexShrink:0}}
+                            onClick={e=>e.stopPropagation()}>
+                            💬 WhatsApp
+                          </a>
+                        )}
+                        {r.phone&&(
+                          <a href={`sms:${r.phone}?body=${encodeURIComponent(`Hi ${r.name}, there is a delivery job at ${biz.name}. Please come to collect the order.`)}`}
+                            style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,background:"rgba(168,85,247,.12)",color:"var(--purple)",fontSize:11,fontWeight:700,textDecoration:"none",flexShrink:0}}
+                            onClick={e=>e.stopPropagation()}>
+                            ✉️ SMS
+                          </a>
+                        )}
+                      </div>
                     </div>
                   ))
                 }
@@ -3193,11 +3247,38 @@ function BusinessApp({user, profile, toast}) {
         <div className="modal-box">
           <h3>🏍️ Assign a Rider</h3>
           {riders.length===0?<p style={{textAlign:"center",color:"var(--muted)",fontSize:13,padding:20}}>No riders online in {biz.region} right now.</p>:
-            riders.map(r=><div key={r.id} className={`rider-opt ${selRider===r.id?"sel":""}`} onClick={()=>setSelRider(r.id)}>
-              <span className="ro2-ico">🏍️</span>
-              <div><div className="ro2-name">{r.name}</div><div className="ro2-det">{r.vehicle} · {r.phone}</div></div>
-              <div className="ro2-rat">⭐ {Number(r.rating||5).toFixed(1)}</div>
-            </div>)
+            riders.map(r=>(
+              <div key={r.id} style={{marginBottom:10}}>
+                <div className={`rider-opt ${selRider===r.id?"sel":""}`} onClick={()=>setSelRider(r.id)}
+                  style={{marginBottom:0,borderRadius:"var(--r) var(--r) 0 0"}}>
+                  <span className="ro2-ico">🏍️</span>
+                  <div style={{flex:1}}>
+                    <div className="ro2-name">{r.name}</div>
+                    <div className="ro2-det">{r.vehicle} · {r.phone}</div>
+                  </div>
+                  <div className="ro2-rat">⭐ {Number(r.rating||5).toFixed(1)}</div>
+                  {selRider===r.id&&<span style={{color:"var(--g1)",fontSize:18,marginLeft:6}}>✓</span>}
+                </div>
+                {/* Contact buttons */}
+                <div style={{display:"flex",gap:6,padding:"6px 10px",background:"var(--cream2)",borderRadius:"0 0 var(--r) var(--r)",border:"1px solid var(--border2)",borderTop:"none",flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,color:"var(--muted)",fontWeight:700,alignSelf:"center"}}>Alert:</span>
+                  {r.phone&&<a href={`tel:${r.phone}`} onClick={e=>e.stopPropagation()}
+                    style={{display:"inline-flex",alignItems:"center",gap:3,padding:"3px 9px",borderRadius:20,background:"rgba(59,158,255,.12)",color:"var(--blue)",fontSize:11,fontWeight:700,textDecoration:"none"}}>
+                    📞 Call
+                  </a>}
+                  {r.phone&&<a href={`https://wa.me/${(r.phone||"").replace(/[^\d]/g,"").replace(/^0/,"233")}?text=${encodeURIComponent("Hi "+r.name+", a delivery job is ready for you at "+biz.name+". Please come to collect the order.")}`}
+                    target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()}
+                    style={{display:"inline-flex",alignItems:"center",gap:3,padding:"3px 9px",borderRadius:20,background:"rgba(37,211,102,.15)",color:"#16a34a",fontSize:11,fontWeight:700,textDecoration:"none"}}>
+                    💬 WhatsApp
+                  </a>}
+                  {r.phone&&<a href={`sms:${r.phone}?body=${encodeURIComponent("Hi "+r.name+", delivery job ready at "+biz.name+".")}`}
+                    onClick={e=>e.stopPropagation()}
+                    style={{display:"inline-flex",alignItems:"center",gap:3,padding:"3px 9px",borderRadius:20,background:"rgba(168,85,247,.12)",color:"var(--purple)",fontSize:11,fontWeight:700,textDecoration:"none"}}>
+                    ✉️ SMS
+                  </a>}
+                </div>
+              </div>
+            ))
           }
           <div className="macts">
             <button className="mact-sec" onClick={()=>setRiderModal(null)}>Cancel</button>
