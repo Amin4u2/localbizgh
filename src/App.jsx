@@ -844,6 +844,183 @@ function ImageUpload({ value, onChange, path, label = "Upload Image", hint = "JP
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// REPORTS & MESSAGES — Firestore helpers
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function submitReport(bizId, bizName, customerId, customerName, reason, details) {
+  const db = _db();
+  await addDoc(collection(db, "reports"), {
+    bizId, bizName, customerId, customerName,
+    reason, details: details||"",
+    status: "open",
+    adminReply: "",
+    createdAt: fts(), timestamp: Date.now(),
+  });
+}
+
+async function submitMessage(fromUid, fromName, fromRole, subject, body) {
+  const db = _db();
+  await addDoc(collection(db, "devMessages"), {
+    fromUid, fromName, fromRole, subject, body,
+    status: "unread",
+    adminReply: "",
+    createdAt: fts(), timestamp: Date.now(),
+  });
+}
+
+function listenDevMessages(callback) {
+  const db = _db();
+  const q = fq(collection(db, "devMessages"), fo("timestamp", "desc"));
+  return fon(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+}
+
+function listenUserMessages(uid, callback) {
+  const db = _db();
+  const q = fq(collection(db, "devMessages"), fw("fromUid", "==", uid), fo("timestamp", "desc"));
+  return fon(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+}
+
+function listenReports(callback) {
+  const db = _db();
+  const q = fq(collection(db, "reports"), fo("timestamp", "desc"));
+  return fon(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+}
+
+async function replyToMessage(msgId, reply) {
+  const db = _db();
+  await fud(fdoc(db, "devMessages", msgId), { adminReply: reply, status: "replied", repliedAt: fts() });
+}
+
+async function replyToReport(reportId, reply, status="resolved") {
+  const db = _db();
+  await fud(fdoc(db, "reports", reportId), { adminReply: reply, status, reviewedAt: fts() });
+}
+
+async function updateBizStatusAdmin(bizId, status) {
+  const db = _db();
+  await fud(fdoc(db, "businesses", bizId), { status, statusUpdatedAt: fts() });
+}
+
+// ── REPORT BUSINESS MODAL ─────────────────────────────────────────────────────
+const REPORT_REASONS = [
+  "Item not delivered","Wrong item delivered","Fake/Scam business",
+  "Rude or abusive behaviour","Price fraud","Poor quality product",
+  "Unsafe food/product","Other",
+];
+
+function ReportBusinessModal({ biz, user, profile, onClose }) {
+  const [reason,  setReason]  = React.useState("");
+  const [details, setDetails] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const [sent,    setSent]    = React.useState(false);
+
+  async function submit() {
+    if (!reason) { alert("Please select a reason."); return; }
+    if (!user)   { alert("Please sign in to report a business."); return; }
+    setLoading(true);
+    try {
+      await submitReport(biz.id, biz.name, user.uid, profile?.name || "Anonymous", reason, details);
+      setSent(true);
+    } catch(e) { alert("Failed: " + e.message); }
+    finally { setLoading(false); }
+  }
+
+  if (sent) return (
+    <div style={RPT_OV} onClick={onClose}>
+      <div style={RPT_BOX} onClick={e=>e.stopPropagation()}>
+        <div style={{textAlign:"center",padding:"20px 0"}}>
+          <div style={{fontSize:48,marginBottom:12}}>✅</div>
+          <h3 style={{margin:"0 0 8px",color:"#16a34a"}}>Report Submitted</h3>
+          <p style={{color:"#555",fontSize:14,margin:"0 0 20px"}}>Thank you. The developer will review your report within 24 hours.</p>
+          <button onClick={onClose} style={RPT_BTN}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={RPT_OV} onClick={onClose}>
+      <div style={RPT_BOX} onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <h3 style={{margin:0,fontSize:18,fontWeight:800,color:"#ef4444"}}>🚨 Report Business</h3>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#999"}}>✕</button>
+        </div>
+        <p style={{fontSize:13,color:"#666",margin:"0 0 16px"}}>Reporting: <strong>{biz.name}</strong></p>
+        <label style={RPT_LBL}>Reason *</label>
+        <select value={reason} onChange={e=>setReason(e.target.value)} style={RPT_INP}>
+          <option value="">— Select a reason —</option>
+          {REPORT_REASONS.map(r=><option key={r} value={r}>{r}</option>)}
+        </select>
+        <label style={{...RPT_LBL,marginTop:12}}>Additional Details (optional)</label>
+        <textarea value={details} onChange={e=>setDetails(e.target.value)} rows={4}
+          placeholder="Describe what happened..."
+          style={{...RPT_INP,resize:"vertical",minHeight:80,fontFamily:"inherit"}}/>
+        <button onClick={submit} disabled={loading} style={{...RPT_BTN,background:"#ef4444",marginTop:16,opacity:loading?0.7:1}}>
+          {loading?"Submitting…":"Submit Report"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ContactDevModal({ user, profile, onClose }) {
+  const [subject, setSubject] = React.useState("");
+  const [body,    setBody]    = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const [sent,    setSent]    = React.useState(false);
+
+  async function submit() {
+    if (!subject.trim() || !body.trim()) { alert("Please fill in all fields."); return; }
+    if (!user) { alert("Please sign in first."); return; }
+    setLoading(true);
+    try {
+      await submitMessage(user.uid, profile?.name||"User", profile?.role||"customer", subject, body);
+      setSent(true);
+    } catch(e) { alert("Failed: " + e.message); }
+    finally { setLoading(false); }
+  }
+
+  if (sent) return (
+    <div style={RPT_OV} onClick={onClose}>
+      <div style={RPT_BOX} onClick={e=>e.stopPropagation()}>
+        <div style={{textAlign:"center",padding:"20px 0"}}>
+          <div style={{fontSize:48,marginBottom:12}}>📨</div>
+          <h3 style={{margin:"0 0 8px",color:"#4f46e5"}}>Message Sent!</h3>
+          <p style={{color:"#555",fontSize:14,margin:"0 0 20px"}}>The developer will reply to your message. Check back here for a reply.</p>
+          <button onClick={onClose} style={RPT_BTN}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={RPT_OV} onClick={onClose}>
+      <div style={RPT_BOX} onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <h3 style={{margin:0,fontSize:18,fontWeight:800,color:"#4f46e5"}}>📬 Contact Developer</h3>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#999"}}>✕</button>
+        </div>
+        <label style={RPT_LBL}>Subject *</label>
+        <input value={subject} onChange={e=>setSubject(e.target.value)} style={RPT_INP} placeholder="What is your message about?"/>
+        <label style={{...RPT_LBL,marginTop:12}}>Message *</label>
+        <textarea value={body} onChange={e=>setBody(e.target.value)} rows={5}
+          placeholder="Type your message here..."
+          style={{...RPT_INP,resize:"vertical",minHeight:100,fontFamily:"inherit"}}/>
+        <button onClick={submit} disabled={loading} style={{...RPT_BTN,marginTop:16,opacity:loading?0.7:1}}>
+          {loading?"Sending…":"Send Message"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const RPT_OV  = {position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16};
+const RPT_BOX = {background:"#fff",borderRadius:16,width:"100%",maxWidth:440,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,.22)",padding:"24px 22px",position:"relative"};
+const RPT_LBL = {display:"block",fontWeight:600,fontSize:13,color:"#374151",marginBottom:6};
+const RPT_INP = {width:"100%",padding:"10px 12px",borderRadius:8,border:"1.5px solid #ddd",fontSize:15,outline:"none",boxSizing:"border-box",background:"#fafafa"};
+const RPT_BTN = {width:"100%",padding:12,borderRadius:10,border:"none",background:"linear-gradient(135deg,#4f46e5,#7c3aed)",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer"};
+
 // RECEIPT COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
 function Receipt({ order, biz, onClose }) {
