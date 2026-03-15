@@ -128,6 +128,15 @@ const PLANS = {
   biannual: {label:"6 Months",   duration:"6 Months", price:550,  monthly:92,   color:"#9333ea",bg:"rgba(147,51,234,.1)",  desc:"Save GH₵50 vs monthly"},
   annual:   {label:"Yearly",     duration:"1 Year",   price:1000, monthly:83,   color:"#16a34a",bg:"rgba(22,163,74,.1)",   desc:"Best value — save GH₵200"},
 };
+
+// Rider plans at 50% of business plans
+const RIDER_PLANS = {
+  free:     {label:"Free Trial", duration:"1 Month",  price:0,   monthly:0,   color:"#64748b",bg:"rgba(100,116,139,.1)", desc:"Full access, no card needed"},
+  monthly:  {label:"Monthly",    duration:"1 Month",  price:50,  monthly:50,  color:"#3b9eff",bg:"rgba(59,158,255,.12)", desc:"Renews every month"},
+  quarter:  {label:"3 Months",   duration:"3 Months", price:125, monthly:42,  color:"#d97706",bg:"rgba(245,158,11,.12)", desc:"Save GH₵25 vs monthly"},
+  biannual: {label:"6 Months",   duration:"6 Months", price:275, monthly:46,  color:"#9333ea",bg:"rgba(147,51,234,.1)",  desc:"Save GH₵25 vs monthly"},
+  annual:   {label:"Yearly",     duration:"1 Year",   price:500, monthly:42,  color:"#16a34a",bg:"rgba(22,163,74,.1)",   desc:"Best value — save GH₵100"},
+};
 const ADMIN_ROLES = [
   {id:"admin",    ico:"⚡", label:"Dashboard"},
   {id:"customer", ico:"🛍️",label:"Customer View"},
@@ -1297,7 +1306,7 @@ function AuthModal({mode, defaultRole, onClose, toast, onAdminAccess}) {
               <input className="finp" placeholder="Enter your username or email" value={form.username} onChange={e=>set("username",e.target.value)} autoComplete="username"/>
             </div>
           )}
-          <div className="fgrp" style={{marginBottom:4}}><label>Password *</label><input className="finp" type="password" placeholder={isSu?"Min 6 characters":"Your password"} value={form.password} onChange={e=>set("password",e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/></div>
+          <div className="fgrp" style={{marginBottom:4}}><label>Password *</label><input className="finp" type="password" placeholder={isSu?"Min 6 characters":"Your password"} defaultValue="" onChange={e=>set("password",e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/></div>
           {!isSu&&<div style={{textAlign:"right",marginBottom:8,marginTop:-2}}><ForgotPasswordModal /></div>}
 
           {/* ── DISCLAIMER for Business & Rider only ── */}
@@ -3206,6 +3215,33 @@ function RiderApp({user, profile, toast}) {
   const [availJobs, setAvailJobs]= useState([]);
   const [businesses,setBusinesses]=useState([]);
   const [riderTab,  setRiderTab] = useState("dashboard");
+  const [hubtelLoading, setHubtelLoading] = useState(null);
+
+  async function initiateRiderSubscriptionPayment(planKey) {
+    const plan = RIDER_PLANS[planKey];
+    if (!plan || plan.price === 0) { toast("Free plan — no payment needed", "warn"); return; }
+    setHubtelLoading(planKey);
+    try {
+      const clientRef = `RIDER-${rider.id||user.uid}-${planKey}-${Date.now()}`;
+      const res = await fetch("https://us-central1-localbizgh.cloudfunctions.net/initiateHubtelCheckout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount:          plan.price,
+          description:     `LocalBiz GH Rider ${plan.label} Subscription — ${profile?.name||"Rider"}`,
+          clientReference: clientRef,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `Payment error ${res.status}`);
+      if (!data.checkoutUrl) throw new Error("No checkout URL returned");
+      // Save clientRef to Firestore so we can confirm on return
+      window.location.href = data.checkoutUrl;
+    } catch(e) {
+      toast("Payment failed: " + e.message, "error");
+      setHubtelLoading(null);
+    }
+  }
   const [history,   setHistory]  = useState([]);
   const [partnerships, setPartnerships] = useState([]);
   const [editingProfile, setEditingProfile] = useState(false);
@@ -3270,6 +3306,7 @@ function RiderApp({user, profile, toast}) {
     ["jobs",     "🔍","Jobs"],
     ["history",  "📦","History"],
     ["partners", "🤝","Partners"],
+    ["sub",      "💎","Plan"],
     ["profile",  "👤","Profile"],
   ];
 
@@ -3512,6 +3549,67 @@ function RiderApp({user, profile, toast}) {
       </div>}
 
       {/* ════════════════════════════════ PROFILE ════════════════════════════ */}
+      {/* ════════ SUBSCRIPTION TAB ════════ */}
+      {riderTab==="sub"&&<div style={{paddingBottom:20}}>
+        <div style={{background:"linear-gradient(135deg,var(--g1),var(--g2))",borderRadius:"var(--r2)",padding:"22px 24px",display:"flex",alignItems:"center",gap:16,flexWrap:"wrap",marginBottom:20,boxShadow:"var(--sh2)"}}>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:"var(--ff)",fontSize:18,fontWeight:900,color:"white",marginBottom:4}}>💎 Rider Subscription</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,.7)",lineHeight:1.5}}>
+              Unlock priority job matching, partner with more businesses, and get verified rider badge.
+            </div>
+            <div style={{marginTop:8,display:"inline-flex",alignItems:"center",gap:8,background:"rgba(255,255,255,.12)",borderRadius:20,padding:"5px 14px"}}>
+              <span style={{fontSize:12,color:"rgba(255,255,255,.9)",fontWeight:700}}>Current plan:</span>
+              <span style={{padding:"2px 10px",borderRadius:12,fontSize:12,fontWeight:800,background:RIDER_PLANS[rider.plan||"free"]?.bg,color:RIDER_PLANS[rider.plan||"free"]?.color}}>
+                {RIDER_PLANS[rider.plan||"free"]?.label}
+              </span>
+            </div>
+          </div>
+          <div style={{textAlign:"center",flexShrink:0}}>
+            <div style={{fontSize:10,color:"rgba(255,255,255,.5)",fontWeight:700,letterSpacing:1}}>RIDER PRICING</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,.8)",fontWeight:600,marginTop:2}}>50% off business rates</div>
+          </div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:12}}>
+          {Object.entries(RIDER_PLANS).map(([key,p])=>{
+            const isCurrent = (rider.plan||"free")===key;
+            const [rHubtelLoading, setRHubtelLoading] = [hubtelLoading, setHubtelLoading];
+            return(
+            <div key={key} onClick={()=>!isCurrent&&p.price>0&&initiateRiderSubscriptionPayment(key)}
+              style={{border:`2px solid ${isCurrent?"var(--g1)":p.color+"44"}`,borderRadius:"var(--r2)",padding:"16px 14px",textAlign:"center",position:"relative",background:isCurrent?"var(--cream)":"white",cursor:isCurrent||p.price===0?"default":"pointer",transition:"all .16s",boxShadow:isCurrent?"var(--sh2)":"var(--sh)"}}>
+              {isCurrent&&<div style={{position:"absolute",top:-10,left:"50%",transform:"translateX(-50%)",background:"var(--g1)",color:"white",fontSize:9,fontWeight:900,padding:"3px 10px",borderRadius:20,letterSpacing:.5,whiteSpace:"nowrap"}}>YOUR PLAN</div>}
+              <div style={{fontSize:22,marginBottom:6}}>
+                {key==="free"?"🆓":key==="monthly"?"📅":key==="quarter"?"📆":key==="biannual"?"⭐":"🏆"}
+              </div>
+              <div style={{fontFamily:"var(--ff)",fontWeight:900,fontSize:15,color:"var(--ink)",marginBottom:2}}>{p.label}</div>
+              <div style={{fontSize:10,color:"var(--muted)",marginBottom:10}}>{p.duration}</div>
+              <div style={{fontFamily:"var(--ff)",fontSize:22,fontWeight:900,color:p.color,marginBottom:4}}>
+                {p.price===0?"FREE":`GH₵${p.price}`}
+              </div>
+              {p.price>0&&<div style={{fontSize:10,color:"var(--dim)",marginBottom:10}}>GH₵{p.monthly}/mo</div>}
+              <div style={{fontSize:11,color:"var(--muted)",fontWeight:700,marginBottom:12,minHeight:16}}>{p.desc}</div>
+              {!isCurrent&&p.price>0&&(
+                <button onClick={e=>{e.stopPropagation();initiateRiderSubscriptionPayment(key);}}
+                  disabled={!!hubtelLoading}
+                  style={{width:"100%",padding:"9px 0",borderRadius:"var(--r)",border:"none",background:hubtelLoading===key?"#ccc":p.color,color:"white",fontFamily:"var(--fb)",fontSize:12,fontWeight:800,cursor:hubtelLoading?"not-allowed":"pointer"}}>
+                  {hubtelLoading===key?"Processing…":"Subscribe →"}
+                </button>
+              )}
+              {!isCurrent&&p.price===0&&(
+                <div style={{fontSize:11,color:"var(--lime3)",fontWeight:700}}>✓ Active</div>
+              )}
+            </div>
+          );})}
+        </div>
+
+        <div style={{marginTop:16,background:"rgba(74,222,128,.06)",borderRadius:"var(--r2)",padding:"14px 16px",border:"1.5px solid rgba(74,222,128,.2)"}}>
+          <div style={{fontWeight:800,fontSize:13,color:"var(--lime3)",marginBottom:8}}>💎 What you get with a paid plan:</div>
+          {["Priority job assignments — you appear first to businesses","Verified rider badge on your profile","Partner with unlimited businesses","Access to premium delivery zones","Priority customer support"].map(b=>(
+            <div key={b} style={{fontSize:12,color:"var(--muted)",marginBottom:4}}>✅ {b}</div>
+          ))}
+        </div>
+      </div>}
+
       {riderTab==="profile"&&<div>
         <div style={{background:"linear-gradient(135deg,var(--g1),var(--g2))",borderRadius:"var(--r2)",padding:"20px",marginBottom:16,boxShadow:"var(--sh2)",textAlign:"center"}}>
           <div style={{width:72,height:72,borderRadius:"50%",overflow:"hidden",background:"rgba(255,255,255,.2)",margin:"0 auto 10px",border:"3px solid rgba(255,255,255,.3)"}}>
