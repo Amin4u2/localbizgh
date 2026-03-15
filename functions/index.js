@@ -1,6 +1,7 @@
 const functions = require("firebase-functions");
 const https     = require("https");
 
+// ── UPDATE THESE with your Hubtel credentials ─────────────────────────────────
 const HUBTEL_API_ID   = "X7q7oXm";
 const HUBTEL_API_KEY  = "75673bfcfa254316b502de468b7fe2b1";
 const HUBTEL_MERCHANT = "2030179";
@@ -44,8 +45,7 @@ exports.initiateHubtelCheckout = functions
 
     const authToken = Buffer.from(`${HUBTEL_API_ID}:${HUBTEL_API_KEY}`).toString("base64");
 
-    // Hubtel requires: totalAmount, description, callbackUrl, returnUrl,
-    // cancellationUrl, merchantAccountNumber, clientReference
+    // Hubtel Online Checkout required fields
     const payload = JSON.stringify({
       totalAmount:           Number(amount),
       description:           description || "LocalBiz GH Subscription",
@@ -68,28 +68,38 @@ exports.initiateHubtelCheckout = functions
       },
     };
 
-    console.log("Hubtel request — merchant:", HUBTEL_MERCHANT, "amount:", amount, "ref:", clientReference);
+    // Log full request for debugging
+    console.log("=== HUBTEL REQUEST ===");
+    console.log("Merchant:", HUBTEL_MERCHANT);
+    console.log("Amount:", amount);
+    console.log("ClientRef:", clientReference);
+    console.log("Payload:", payload);
 
     try {
       const response = await makeRequest(options, payload);
-      console.log("Hubtel response:", response.status, JSON.stringify(response.body));
 
-      if (response.status === 401) {
-        res.status(401).json({ error: "Authentication failed — check Client ID and Secret" });
-        return;
-      }
-      if (response.status === 400) {
-        res.status(400).json({ error: "Bad request", details: response.body });
-        return;
-      }
+      // Log full response for debugging
+      console.log("=== HUBTEL RESPONSE ===");
+      console.log("Status:", response.status);
+      console.log("Body:", JSON.stringify(response.body));
+
       if (response.status !== 200) {
-        res.status(response.status).json({ error: `Hubtel HTTP ${response.status}`, details: response.body });
+        // Return FULL Hubtel error so we can debug
+        res.status(response.status).json({
+          error:   `Hubtel HTTP ${response.status}`,
+          details: response.body,
+          hint:    response.status === 401
+            ? "Wrong Client ID or Secret — check developers.hubtel.com"
+            : response.status === 400
+            ? "Bad request — check merchant account number at unity.hubtel.com"
+            : "Check Firebase Function logs for details",
+        });
         return;
       }
 
       const checkoutUrl = response.body?.data?.checkoutUrl || response.body?.checkoutUrl || null;
       if (!checkoutUrl) {
-        res.status(500).json({ error: "No checkout URL in response", details: response.body });
+        res.status(500).json({ error: "No checkout URL", details: response.body });
         return;
       }
 

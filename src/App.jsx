@@ -63,12 +63,16 @@ async function initiateHubtelPayment(amount, description, clientRef) {
   }
 
   if (!res.ok) {
-    // Friendly error messages for common cases
+    // Show full Hubtel error details for debugging
+    const details = data?.details || data;
+    const hubtelMsg = typeof details === "object"
+      ? JSON.stringify(details)
+      : String(details || "");
     const msg =
-      res.status === 401 ? "Payment credentials invalid. Please contact the admin." :
-      res.status === 400 ? "Invalid payment details: " + (data?.error || "unknown") :
-      res.status === 503 ? "Payment service temporarily unavailable. Try again in a moment." :
-      (data?.error || `Payment server error (HTTP ${res.status})`);
+      res.status === 401 ? "Payment credentials invalid. Contact admin." :
+      res.status === 400 ? `Hubtel rejected request: ${data?.error || ""} ${hubtelMsg}` :
+      res.status === 503 ? "Payment service unavailable. Try again." :
+      (data?.error || `Payment error HTTP ${res.status}: ${hubtelMsg}`);
     throw new Error(msg);
   }
 
