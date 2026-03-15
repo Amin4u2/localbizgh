@@ -3511,8 +3511,6 @@ function AdminDashboard({toast}) {
 
   // Business selected for detail view in admin
   const [selAdminBiz, setSelAdminBiz] = useState(null);
-  const [bizFilter, setBizFilter]     = useState("all"); // all | active | suspended | revoked | idle | reported
-  const [bizSearch, setBizSearch]     = useState("");
 
   const reportedBizIds = new Set(reports.map(r => r.bizId));
 
