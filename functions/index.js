@@ -1,10 +1,9 @@
 const functions = require("firebase-functions");
 const https     = require("https");
 
-// ── UPDATE THESE with your Hubtel credentials ─────────────────────────────────
-const HUBTEL_API_ID   = "X7q7oXm";
-const HUBTEL_API_KEY  = "75673bfcfa254316b502de468b7fe2b1";
-const HUBTEL_MERCHANT = "2030179";
+const HUBTEL_API_ID   = "X7q7oXm";            // ✅ Confirmed Client ID
+const HUBTEL_API_KEY  = "77a27a218cd14819ac6e0e6434368506";  
+const HUBTEL_MERCHANT = "2030179";            // ✅ Confirmed working merchant
 const APP_URL         = "https://localbizgh.web.app";
 
 function makeRequest(options, body) {
@@ -45,14 +44,13 @@ exports.initiateHubtelCheckout = functions
 
     const authToken = Buffer.from(`${HUBTEL_API_ID}:${HUBTEL_API_KEY}`).toString("base64");
 
-    // Hubtel Online Checkout required fields
     const payload = JSON.stringify({
       totalAmount:           Number(amount),
       description:           description || "LocalBiz GH Subscription",
       callbackUrl:           `${APP_URL}/hubtel-callback`,
-      returnUrl:             `${APP_URL}?hubtel=success&clientReference=${encodeURIComponent(clientReference)}`,
-      cancellationUrl:       `${APP_URL}?hubtel=cancelled`,
+      returnUrl:             `${APP_URL}?hubtel=success&ref=${encodeURIComponent(clientReference)}`,
       merchantAccountNumber: HUBTEL_MERCHANT,
+      cancellationUrl:       `${APP_URL}?hubtel=cancelled`,
       clientReference:       clientReference,
     });
 
@@ -64,42 +62,25 @@ exports.initiateHubtelCheckout = functions
         "Content-Type":   "application/json",
         "Authorization":  `Basic ${authToken}`,
         "Content-Length": Buffer.byteLength(payload),
-        "Cache-Control":  "no-cache",
       },
     };
 
-    // Log full request for debugging
-    console.log("=== HUBTEL REQUEST ===");
-    console.log("Merchant:", HUBTEL_MERCHANT);
-    console.log("Amount:", amount);
-    console.log("ClientRef:", clientReference);
-    console.log("Payload:", payload);
-
     try {
       const response = await makeRequest(options, payload);
-
-      // Log full response for debugging
-      console.log("=== HUBTEL RESPONSE ===");
-      console.log("Status:", response.status);
-      console.log("Body:", JSON.stringify(response.body));
+      console.log("Hubtel response:", response.status, JSON.stringify(response.body));
 
       if (response.status !== 200) {
-        // Return FULL Hubtel error so we can debug
-        res.status(response.status).json({
-          error:   `Hubtel HTTP ${response.status}`,
-          details: response.body,
-          hint:    response.status === 401
-            ? "Wrong Client ID or Secret — check developers.hubtel.com"
-            : response.status === 400
-            ? "Bad request — check merchant account number at unity.hubtel.com"
-            : "Check Firebase Function logs for details",
-        });
+        res.status(response.status).json({ error: `Hubtel HTTP ${response.status}`, details: response.body });
         return;
       }
 
-      const checkoutUrl = response.body?.data?.checkoutUrl || response.body?.checkoutUrl || null;
+      const checkoutUrl =
+        response.body?.data?.checkoutUrl ||
+        response.body?.data?.checkoutDirectUrl ||
+        response.body?.checkoutUrl || null;
+
       if (!checkoutUrl) {
-        res.status(500).json({ error: "No checkout URL", details: response.body });
+        res.status(500).json({ error: "No checkoutUrl in response", raw: response.body });
         return;
       }
 
