@@ -29,6 +29,13 @@ import {
   track,
 } from "./firebase";
 
+// ── Firestore direct imports for Reports & Messages ───────────────────────────
+import { getFirestore, collection, addDoc, serverTimestamp as fts,
+  query as fq, where as fw, orderBy as fo, onSnapshot as fon,
+  updateDoc as fud, doc as fdoc } from "firebase/firestore";
+import { getApp } from "firebase/app";
+const _db = () => getFirestore(getApp());
+
 // ══════════════════════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1310,7 +1317,7 @@ function AuthModal({mode, defaultRole, onClose, toast, onAdminAccess}) {
               <input className="finp" placeholder="Enter your username or email" value={form.username} onChange={e=>set("username",e.target.value)} autoComplete="username"/>
             </div>
           )}
-          <div className="fgrp" style={{marginBottom:4}}><label>Password *</label><input className="finp" type="password" placeholder={isSu?"Min 6 characters":"Your password"} defaultValue="" onChange={e=>set("password",e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/></div>
+          <div className="fgrp" style={{marginBottom:4}}><label>Password *</label><input className="finp" type="password" placeholder={isSu?"Min 6 characters":"Your password"} onChange={e=>set("password",e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/></div>
           {!isSu&&<div style={{textAlign:"right",marginBottom:8,marginTop:-2}}><ForgotPasswordModal /></div>}
 
           {/* ── DISCLAIMER for Business & Rider only ── */}
