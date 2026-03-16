@@ -3866,6 +3866,64 @@ function AdminDashboard({toast}) {
 
   async function recordPayment(b){ const amt=PLANS[b.plan||"free"]?.price||0; if(amt===0){toast("Free plan — no payment to record","warn");return;} try{await logSubscriptionPayment(b.id,b.name,b.plan,amt);toast(`Payment of ${fmt(amt)} recorded for ${b.name}`);}catch(e){toast("Failed","error");} }
 
+  // Extended subscription management
+  async function adminSetSubPlan(bizId, planKey, bizName) {
+    try {
+      await updateSubscription(bizId, planKey);
+      toast(`✅ ${bizName} updated to ${PLANS[planKey]?.label || planKey} plan`);
+    } catch(e) { toast("Failed: "+e.message,"error"); }
+  }
+
+  async function adminActivate(bizId, bizName) {
+    try {
+      await adminUpdateBusiness(bizId, { status:"active", statusNote:"Activated by admin", statusUpdatedAt: new Date().toISOString() });
+      toast(`✅ ${bizName} activated`);
+    } catch(e) { toast("Failed: "+e.message,"error"); }
+  }
+
+  async function adminDeactivate(bizId, bizName) {
+    try {
+      await adminUpdateBusiness(bizId, { status:"suspended", statusNote:"Deactivated by admin", statusUpdatedAt: new Date().toISOString() });
+      toast(`⏸️ ${bizName} deactivated`,"warn");
+    } catch(e) { toast("Failed: "+e.message,"error"); }
+  }
+
+  async function adminExtendFree(bizId, bizName, months) {
+    try {
+      // Push createdAt back by X months so idle detection resets
+      const db = _db();
+      const newCreatedAt = new Date();
+      newCreatedAt.setMonth(newCreatedAt.getMonth() - (6 - months)); // give them X more months
+      await fud(fdoc(db,"businesses",bizId), {
+        createdAt: { seconds: Math.floor(newCreatedAt.getTime()/1000), nanoseconds: 0 },
+        freeExtendedBy: months,
+        freeExtendedAt: new Date().toISOString(),
+        statusNote: `Free trial extended by ${months} month(s) by admin`,
+      });
+      toast(`✅ Free trial extended by ${months} month(s) for ${bizName}`);
+    } catch(e) { toast("Failed: "+e.message,"error"); }
+  }
+
+  async function adminSaveSubEdit(biz) {
+    try {
+      const db = _db();
+      await fud(fdoc(db,"businesses",biz.id), {
+        plan:          subEditForm.plan || biz.plan || "free",
+        status:        subEditForm.status || biz.status || "active",
+        ownerName:     subEditForm.ownerName || biz.ownerName,
+        contactPhone:  subEditForm.contactPhone || biz.contactPhone,
+        statusNote:    subEditForm.statusNote || "",
+        adminNote:     subEditForm.adminNote || "",
+        updatedAt:     new Date().toISOString(),
+      });
+      if (subEditForm.plan !== (biz.plan||"free") && PLANS[subEditForm.plan]?.price > 0) {
+        await logSubscriptionPayment(biz.id, biz.name, subEditForm.plan, PLANS[subEditForm.plan].price);
+      }
+      toast("✅ Account updated successfully");
+      setSubEditModal(null);
+    } catch(e) { toast("Failed: "+e.message,"error"); }
+  }
+
   // Identify idle shops: on free plan for >6 months (180 days)
   const SIX_MONTHS_MS = 180 * 24 * 60 * 60 * 1000;
   const idleShops = businesses.filter(b => {
@@ -3878,6 +3936,9 @@ function AdminDashboard({toast}) {
 
   // Business selected for detail view in admin
   const [selAdminBiz, setSelAdminBiz] = useState(null);
+  const [subEditModal, setSubEditModal] = useState(null); // business object being edited
+  const [subEditForm, setSubEditForm]   = useState({});   // editable fields
+  const [subSearch, setSubSearch]       = useState("");
 
   const reportedBizIds = new Set(reports.map(r => r.bizId));
 
@@ -3938,53 +3999,211 @@ function AdminDashboard({toast}) {
       </div>
 
       {admTab==="subscriptions"&&<>
-        <div className="sect-head"><span className="sect-h">Subscription Management</span></div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(175px,1fr))",gap:12,marginBottom:20}}>
-          {Object.entries(PLANS).map(([k,p])=>{const cnt=businesses.filter(b=>b.plan===k&&b.status!=="suspended").length;return(
-            <div key={k} style={{background:"white",borderRadius:"var(--r2)",padding:16,boxShadow:"var(--sh)"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <span className="plan-pill" style={{background:p.bg,color:p.color}}>{p.label}</span>
-                <span style={{fontFamily:"var(--ff)",fontSize:22,fontWeight:900}}>{cnt}</span>
+        {/* ── Summary stats ── */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:18}}>
+          {Object.entries(PLANS).map(([k,p])=>{
+            const cnt=businesses.filter(b=>(b.plan||"free")===k).length;
+            const rev=cnt*(p.price||0);
+            return(
+            <div key={k} style={{background:"white",borderRadius:"var(--r2)",padding:"12px 14px",boxShadow:"var(--sh)",borderLeft:`4px solid ${p.color}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                <span style={{fontSize:11,fontWeight:800,color:p.color}}>{p.label.toUpperCase()}</span>
+                <span style={{fontFamily:"var(--ff)",fontSize:20,fontWeight:900,color:"var(--ink)"}}>{cnt}</span>
               </div>
-              <div style={{fontSize:12,color:"var(--muted)"}}>{p.price===0?"Free tier":fmt(p.price)+"/mo"}</div>
-              <div style={{fontSize:12,fontWeight:700,color:"var(--g1)",marginTop:4}}>{p.price===0?"—":fmt(cnt*p.price)+" revenue"}</div>
+              <div style={{fontSize:11,color:"var(--muted)"}}>{p.price===0?"Free tier":fmt(p.price)+" each"}</div>
+              <div style={{fontSize:12,fontWeight:700,color:"var(--g1)",marginTop:2}}>{rev>0?fmt(rev)+" MRR":"—"}</div>
             </div>
           );})}
         </div>
-        {businesses.map(b=>(
-          <div key={b.id} className="sub-card">
-            <div className="sub-head">
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                {b.logo&&<img src={b.logo} style={{width:36,height:36,borderRadius:9,objectFit:"cover"}} alt="logo" onError={e=>e.target.style.display="none"}/>}
-                <div>
-                  <div className="sub-bname">{b.name}</div>
-                  <div className="sub-meta">📍 {b.region} · {b.category} · Owner: {b.ownerName}</div>
-                </div>
+
+        {/* ── Search ── */}
+        <div style={{display:"flex",gap:8,marginBottom:14,alignItems:"center"}}>
+          <input value={subSearch} onChange={e=>setSubSearch(e.target.value)}
+            placeholder="Search businesses or owner name..."
+            style={{flex:1,padding:"9px 13px",borderRadius:"var(--r)",border:"1.5px solid var(--border2)",fontSize:13,fontFamily:"var(--fb)",outline:"none"}}/>
+          <span style={{fontSize:12,color:"var(--muted)",whiteSpace:"nowrap"}}>{businesses.filter(b=>!subSearch||b.name.toLowerCase().includes(subSearch.toLowerCase())||(b.ownerName||"").toLowerCase().includes(subSearch.toLowerCase())).length} results</span>
+        </div>
+
+        {/* ── Business subscription cards ── */}
+        {businesses
+          .filter(b=>!subSearch||b.name.toLowerCase().includes(subSearch.toLowerCase())||(b.ownerName||"").toLowerCase().includes(subSearch.toLowerCase()))
+          .map(b=>{
+          const plan = PLANS[b.plan||"free"];
+          const isActive = b.status==="active"||!b.status;
+          const isSuspended = b.status==="suspended";
+          const isRevoked = b.status==="revoked";
+          const createdTs = b.createdAt?.seconds ? b.createdAt.seconds*1000 : (b.createdAt||0);
+          const monthsOld = Math.floor((Date.now()-createdTs)/(30*24*60*60*1000));
+          return(
+          <div key={b.id} style={{background:"white",borderRadius:"var(--r2)",boxShadow:"var(--sh)",marginBottom:12,border:`1.5px solid ${isSuspended?"rgba(239,68,68,.25)":isRevoked?"rgba(107,114,128,.3)":"var(--border2)"}`,overflow:"hidden"}}>
+
+            {/* Header */}
+            <div style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              {b.logo?<img src={b.logo} style={{width:40,height:40,borderRadius:9,objectFit:"cover",flexShrink:0}} alt="" onError={e=>e.target.style.display="none"}/>
+               :<div style={{width:40,height:40,borderRadius:9,background:"var(--cream2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{catEmo(b.category)}</div>}
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:800,fontSize:15}}>{b.name}</div>
+                <div style={{fontSize:11,color:"var(--muted)"}}>👤 {b.ownerName} · 📞 {b.contactPhone||"—"} · 📍 {b.region}</div>
+                <div style={{fontSize:10,color:"var(--dim)",marginTop:1}}>Joined {dstr(b.createdAt)} · {monthsOld} month{monthsOld!==1?"s":""} ago · Orders: {b.ordersCount||0}</div>
               </div>
-              <span className="plan-pill" style={{background:PLANS[b.plan||"free"]?.bg,color:PLANS[b.plan||"free"]?.color,flexShrink:0}}>{PLANS[b.plan||"free"]?.label}</span>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
+                <span style={{padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:800,background:plan?.bg,color:plan?.color}}>{plan?.label}</span>
+                <span style={{padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:800,
+                  background:isActive?"rgba(22,163,74,.1)":isSuspended?"rgba(239,68,68,.1)":"rgba(107,114,128,.1)",
+                  color:isActive?"var(--lime3)":isSuspended?"var(--red)":"var(--muted)"}}>
+                  {isActive?"✅ Active":isSuspended?"⏸️ Suspended":"🚫 Revoked"}
+                </span>
+              </div>
             </div>
-            <div className="sub-plans">
+
+            {/* Admin note if any */}
+            {b.adminNote&&<div style={{padding:"6px 16px",background:"rgba(79,70,229,.05)",borderTop:"1px solid rgba(79,70,229,.1)",fontSize:11,color:"#4f46e5",fontWeight:600}}>📝 Admin note: {b.adminNote}</div>}
+
+            {/* Quick plan buttons */}
+            <div style={{padding:"8px 16px",borderTop:"1px solid var(--border2)",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+              <span style={{fontSize:11,fontWeight:700,color:"var(--muted)",marginRight:4}}>Plan:</span>
               {Object.entries(PLANS).map(([k,p])=>(
-                <button key={k} className="sub-plan-btn"
-                  style={{borderColor:p.color,color:(b.plan||"free")===k?"white":p.color,background:(b.plan||"free")===k?p.color:"transparent"}}
-                  onClick={()=>setPlan(b.id,k)}>
-                  {p.label}{p.price>0?" · "+fmt(p.price):""}
+                <button key={k} onClick={()=>adminSetSubPlan(b.id,k,b.name)}
+                  style={{padding:"4px 10px",borderRadius:20,border:`1.5px solid ${p.color}`,fontSize:11,fontWeight:800,cursor:"pointer",
+                    background:(b.plan||"free")===k?p.color:"white",color:(b.plan||"free")===k?"white":p.color,transition:"all .13s"}}>
+                  {p.label}
                 </button>
               ))}
             </div>
-            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",paddingTop:8,borderTop:"1px solid var(--border2)"}}>
-              <span style={{fontSize:11,color:"var(--muted)"}}>Status: <strong style={{color:b.status==="active"?"var(--lime3)":"var(--red)"}}>{b.status||"active"}</strong></span>
-              <span style={{fontSize:11,color:"var(--muted)"}}>GPS: <strong>{b.location?"✅ Set":"—"}</strong></span>
-              <div style={{marginLeft:"auto",display:"flex",gap:7}}>
-                <button className="btn-record-pay" onClick={()=>recordPayment(b)}>🧾 Record Payment</button>
-                <button className="adm-act" style={{background:b.status==="suspended"?"rgba(34,197,94,.08)":"rgba(239,68,68,.08)",color:b.status==="suspended"?"var(--lime3)":"var(--red)"}} onClick={()=>toggleBiz(b.id,b.status)}>
-                  {b.status==="suspended"?"Activate":"Suspend"}
+
+            {/* Action buttons */}
+            <div style={{padding:"8px 16px",borderTop:"1px solid var(--border2)",display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+              {/* Activate / Deactivate */}
+              {!isActive&&<button onClick={()=>adminActivate(b.id,b.name)}
+                style={{padding:"5px 12px",borderRadius:"var(--r)",border:"none",background:"rgba(22,163,74,.1)",color:"#15803d",fontFamily:"var(--fb)",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+                ✅ Activate
+              </button>}
+              {isActive&&<button onClick={()=>adminDeactivate(b.id,b.name)}
+                style={{padding:"5px 12px",borderRadius:"var(--r)",border:"none",background:"rgba(239,68,68,.08)",color:"var(--red)",fontFamily:"var(--fb)",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+                ⏸️ Deactivate
+              </button>}
+
+              {/* Extend free trial */}
+              {(b.plan||"free")==="free"&&<>
+                {[1,2,3].map(m=>(
+                  <button key={m} onClick={()=>adminExtendFree(b.id,b.name,m)}
+                    style={{padding:"5px 12px",borderRadius:"var(--r)",border:"1.5px solid var(--amber)",background:"rgba(245,158,11,.08)",color:"var(--amber2)",fontFamily:"var(--fb)",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                    +{m}mo Free
+                  </button>
+                ))}
+              </>}
+
+              {/* Record payment */}
+              {(b.plan||"free")!=="free"&&<button onClick={()=>recordPayment(b)}
+                style={{padding:"5px 12px",borderRadius:"var(--r)",border:"1.5px solid var(--g3)",background:"transparent",color:"var(--g3)",fontFamily:"var(--fb)",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                🧾 Record Payment
+              </button>}
+
+              {/* Full edit */}
+              <button onClick={()=>{setSubEditModal(b);setSubEditForm({plan:b.plan||"free",status:b.status||"active",ownerName:b.ownerName||"",contactPhone:b.contactPhone||"",statusNote:b.statusNote||"",adminNote:b.adminNote||""});}}
+                style={{padding:"5px 12px",borderRadius:"var(--r)",border:"1.5px solid var(--border2)",background:"var(--cream)",color:"var(--ink)",fontFamily:"var(--fb)",fontSize:12,fontWeight:700,cursor:"pointer",marginLeft:"auto"}}>
+                ✏️ Edit Account
+              </button>
+            </div>
+          </div>
+        );})}
+
+        {businesses.length===0&&<div className="empty-st"><span className="ico">🏪</span><h3>No businesses yet</h3></div>}
+
+        {/* ── Full Edit Modal ── */}
+        {subEditModal&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            <div style={{background:"white",borderRadius:16,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,.22)",padding:"24px 22px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+                <h3 style={{margin:0,fontSize:18,fontWeight:800}}>✏️ Edit Account — {subEditModal.name}</h3>
+                <button onClick={()=>setSubEditModal(null)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#999"}}>✕</button>
+              </div>
+
+              {/* Plan */}
+              <div style={{marginBottom:14}}>
+                <label style={{display:"block",fontWeight:700,fontSize:13,marginBottom:6}}>Subscription Plan</label>
+                <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                  {Object.entries(PLANS).map(([k,p])=>(
+                    <button key={k} onClick={()=>setSubEditForm(f=>({...f,plan:k}))}
+                      style={{padding:"6px 12px",borderRadius:20,border:`1.5px solid ${p.color}`,fontSize:12,fontWeight:800,cursor:"pointer",
+                        background:subEditForm.plan===k?p.color:"white",color:subEditForm.plan===k?"white":p.color}}>
+                      {p.label} {p.price>0?`· GH₵${p.price}`:""}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Status */}
+              <div style={{marginBottom:14}}>
+                <label style={{display:"block",fontWeight:700,fontSize:13,marginBottom:6}}>Account Status</label>
+                <div style={{display:"flex",gap:7}}>
+                  {[["active","✅ Active","rgba(22,163,74,.1)","#15803d"],["suspended","⏸️ Suspended","rgba(239,68,68,.08)","var(--red)"],["revoked","🚫 Revoked","rgba(107,114,128,.1)","var(--muted)"]].map(([val,lbl,bg,col])=>(
+                    <button key={val} onClick={()=>setSubEditForm(f=>({...f,status:val}))}
+                      style={{flex:1,padding:"8px",borderRadius:8,border:`1.5px solid ${subEditForm.status===val?col:"var(--border2)"}`,background:subEditForm.status===val?bg:"white",color:col,fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Extend free trial */}
+              {subEditForm.plan==="free"&&(
+                <div style={{marginBottom:14,padding:"10px 14px",background:"rgba(245,158,11,.06)",borderRadius:10,border:"1px solid rgba(245,158,11,.2)"}}>
+                  <div style={{fontWeight:700,fontSize:12,color:"var(--amber2)",marginBottom:8}}>⏰ Extend Free Trial</div>
+                  <div style={{display:"flex",gap:7}}>
+                    {[1,2,3,6].map(m=>(
+                      <button key={m} onClick={()=>adminExtendFree(subEditModal.id,subEditModal.name,m)}
+                        style={{flex:1,padding:"6px",borderRadius:8,border:"1.5px solid var(--amber)",background:"rgba(245,158,11,.08)",color:"var(--amber2)",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                        +{m} mo
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Owner name */}
+              <div style={{marginBottom:12}}>
+                <label style={{display:"block",fontWeight:700,fontSize:13,marginBottom:5}}>Owner Name</label>
+                <input value={subEditForm.ownerName} onChange={e=>setSubEditForm(f=>({...f,ownerName:e.target.value}))}
+                  style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid var(--border2)",fontSize:14,fontFamily:"var(--fb)",outline:"none",boxSizing:"border-box"}}/>
+              </div>
+
+              {/* Phone */}
+              <div style={{marginBottom:12}}>
+                <label style={{display:"block",fontWeight:700,fontSize:13,marginBottom:5}}>Contact Phone</label>
+                <input value={subEditForm.contactPhone} onChange={e=>setSubEditForm(f=>({...f,contactPhone:e.target.value}))}
+                  style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid var(--border2)",fontSize:14,fontFamily:"var(--fb)",outline:"none",boxSizing:"border-box"}}/>
+              </div>
+
+              {/* Status note */}
+              <div style={{marginBottom:12}}>
+                <label style={{display:"block",fontWeight:700,fontSize:13,marginBottom:5}}>Status Note (visible to team)</label>
+                <input value={subEditForm.statusNote} onChange={e=>setSubEditForm(f=>({...f,statusNote:e.target.value}))}
+                  placeholder="e.g. Payment delayed, extended by 1 month"
+                  style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid var(--border2)",fontSize:13,fontFamily:"var(--fb)",outline:"none",boxSizing:"border-box"}}/>
+              </div>
+
+              {/* Admin note */}
+              <div style={{marginBottom:20}}>
+                <label style={{display:"block",fontWeight:700,fontSize:13,marginBottom:5}}>Admin Note (private)</label>
+                <textarea value={subEditForm.adminNote} onChange={e=>setSubEditForm(f=>({...f,adminNote:e.target.value}))}
+                  rows={3} placeholder="Internal notes about this account..."
+                  style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid var(--border2)",fontSize:13,fontFamily:"var(--fb)",outline:"none",resize:"vertical",boxSizing:"border-box"}}/>
+              </div>
+
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={()=>setSubEditModal(null)}
+                  style={{flex:1,padding:12,borderRadius:10,border:"1.5px solid var(--border2)",background:"white",fontFamily:"var(--fb)",fontWeight:600,cursor:"pointer"}}>
+                  Cancel
+                </button>
+                <button onClick={()=>adminSaveSubEdit(subEditModal)}
+                  style={{flex:2,padding:12,borderRadius:10,border:"none",background:"var(--g1)",color:"white",fontFamily:"var(--fb)",fontWeight:800,fontSize:14,cursor:"pointer"}}>
+                  💾 Save Changes
                 </button>
               </div>
             </div>
           </div>
-        ))}
-        {businesses.length===0&&<div className="empty-st"><span className="ico">🏪</span><h3>No businesses yet</h3></div>}
+        )}
       </>}
 
       {admTab==="businesses"&&<>
