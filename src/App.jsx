@@ -2074,8 +2074,7 @@ function BusinessApp({user, profile, toast}) {
     const params = new URLSearchParams(window.location.search);
     const hubtelStatus = params.get("hubtel");
     const clientRef    = params.get("clientReference");
-    if(hubtelStatus==="success" && clientRef && clientRef.startsWith("SUB-")) {
-      // clientRef format: SUB-{bizId}-{planKey}-{timestamp}
+    if(hubtelStatus==="success" && clientRef && (clientRef.startsWith("LBG-")||clientRef.startsWith("LBR-")||clientRef.startsWith("SUB-"))) {
       const parts = clientRef.split("-");
       if(parts.length>=3){
         const planKey = parts[2];
@@ -2221,7 +2220,9 @@ function BusinessApp({user, profile, toast}) {
     if(!plan || plan.price===0){toast("Free plan — no payment needed","warn");return;}
     setHubtelLoading(planKey);
     try{
-      const clientRef = `SUB-${biz.id}-${planKey}-${Date.now()}`;
+      // Hubtel requires short simple clientReference (max ~20 chars, alphanumeric)
+      const shortId = Math.random().toString(36).slice(2,8).toUpperCase();
+      const clientRef = `LBG-${shortId}`;
       const checkoutUrl = await initiateHubtelPayment(
         plan.price,
         `LocalBiz GH ${plan.label} Subscription — ${biz.name}`,
@@ -3314,7 +3315,8 @@ function RiderApp({user, profile, toast}) {
     if (!plan || plan.price === 0) { toast("Free plan — no payment needed", "warn"); return; }
     setHubtelLoading(planKey);
     try {
-      const clientRef = `RIDER-${rider.id||user.uid}-${planKey}-${Date.now()}`;
+      const shortId = Math.random().toString(36).slice(2,8).toUpperCase();
+      const clientRef = `LBR-${shortId}`;
       const res = await fetch("https://us-central1-localbizgh.cloudfunctions.net/initiateHubtelCheckout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
