@@ -1,9 +1,9 @@
 const functions = require("firebase-functions");
 const https     = require("https");
 
-const HUBTEL_API_ID   = "X7q7oXm";            // ✅ Confirmed Client ID
+const HUBTEL_API_ID   = "X7q7oXm";            
 const HUBTEL_API_KEY  = "77a27a218cd14819ac6e0e6434368506";  
-const HUBTEL_MERCHANT = "2030179";            // ✅ Confirmed working merchant
+const HUBTEL_MERCHANT = "2030179";           
 const APP_URL         = "https://localbizgh.web.app";
 
 function makeRequest(options, body) {
