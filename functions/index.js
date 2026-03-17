@@ -1,8 +1,8 @@
 const functions = require("firebase-functions");
 const https     = require("https");
 
-const HUBTEL_API_ID   = "X7q7oXm";            
-const HUBTEL_API_KEY  = "77a27a218cd14819ac6e0e6434368506";  
+const HUBTEL_API_ID   = "O74KD9R";            
+const HUBTEL_API_KEY  = "2981a3faee0743f6beaefe5311070bd5";  
 const HUBTEL_MERCHANT = "2030179";           
 const APP_URL         = "https://localbizgh.web.app";
 
